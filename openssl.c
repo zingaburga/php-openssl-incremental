@@ -100,7 +100,7 @@ zend_module_entry openssl_incr_module_entry = {
 };
 /* }}} */
 
-#ifdef COMPILE_DL_OPENSSL
+#ifdef COMPILE_DL_OPENSSL_INCR
 ZEND_GET_MODULE(openssl_incr)
 #endif
 
@@ -127,9 +127,9 @@ PHP_MINIT_FUNCTION(openssl_incr)
 	OpenSSL_add_all_digests();
 	OpenSSL_add_all_algorithms();
 
-	SSL_load_error_strings();
+	//SSL_load_error_strings();
 	
-	/* signature algorithm constants */
+	/* signature algorithm constants; assume already defined by OpenSSL extension */
 	/*
 	REGISTER_LONG_CONSTANT("OPENSSL_ALGO_SHA1", OPENSSL_ALGO_SHA1, CONST_CS|CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("OPENSSL_ALGO_MD5", OPENSSL_ALGO_MD5, CONST_CS|CONST_PERSISTENT);
