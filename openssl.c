@@ -1,26 +1,3 @@
-/*
-   +----------------------------------------------------------------------+
-   | PHP Version 5                                                        |
-   +----------------------------------------------------------------------+
-   | Copyright (c) 1997-2014 The PHP Group                                |
-   +----------------------------------------------------------------------+
-   | This source file is subject to version 3.01 of the PHP license,      |
-   | that is bundled with this package in the file LICENSE, and is        |
-   | available through the world-wide-web at the following url:           |
-   | http://www.php.net/license/3_01.txt                                  |
-   | If you did not receive a copy of the PHP license and are unable to   |
-   | obtain it through the world-wide-web, please send a note to          |
-   | license@php.net so we can mail you a copy immediately.               |
-   +----------------------------------------------------------------------+
-   | Authors: Stig Venaas <venaas@php.net>                                |
-   |          Wez Furlong <wez@thebrainroom.com>                          |
-   |          Sascha Kettler <kettler@gmx.net>                            |
-   |          Pierre-Alain Joye <pierre@php.net>                          |
-   |          Marc Delling <delling@silpion.de> (PKCS12 functions)        |		
-   +----------------------------------------------------------------------+
- */
-
-/* $Id$ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -37,9 +14,6 @@
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 
-#define DEFAULT_KEY_LENGTH	512
-#define MIN_KEY_LENGTH		384
-
 #define OPENSSL_ALGO_SHA1 	1
 #define OPENSSL_ALGO_MD5	2
 #define OPENSSL_ALGO_MD4	3
@@ -54,26 +28,6 @@
 #define OPENSSL_ALGO_SHA512 9
 #define OPENSSL_ALGO_RMD160 10
 #endif
-#define DEBUG_SMIME	0
-
-#if !defined(OPENSSL_NO_EC) && defined(EVP_PKEY_EC)
-#define HAVE_EVP_PKEY_EC 1
-#endif
-
-/* FIXME: Use the openssl constants instead of
- * enum. It is now impossible to match real values
- * against php constants. Also sorry to break the
- * enum principles here, BC...
- */
-enum php_openssl_key_type {
-	OPENSSL_KEYTYPE_RSA,
-	OPENSSL_KEYTYPE_DSA,
-	OPENSSL_KEYTYPE_DH,
-	OPENSSL_KEYTYPE_DEFAULT = OPENSSL_KEYTYPE_RSA,
-#ifdef HAVE_EVP_PKEY_EC
-	OPENSSL_KEYTYPE_EC = OPENSSL_KEYTYPE_DH +1
-#endif
-};
 
 enum php_openssl_cipher_type {
 	PHP_OPENSSL_CIPHER_RC2_40,
@@ -130,29 +84,27 @@ const zend_function_entry openssl_functions[] = {
 };
 /* }}} */
 
-/* {{{ openssl_module_entry
+/* {{{ openssl_incr_module_entry
  */
-zend_module_entry openssl_module_entry = {
+zend_module_entry openssl_incr_module_entry = {
 	STANDARD_MODULE_HEADER,
-	"openssl",
+	"openssl_incr",
 	openssl_functions,
-	PHP_MINIT(openssl),
-	PHP_MSHUTDOWN(openssl),
+	PHP_MINIT(openssl_incr),
+	PHP_MSHUTDOWN(openssl_incr),
 	NULL,
 	NULL,
-	PHP_MINFO(openssl),
+	PHP_MINFO(openssl_incr),
 	NO_VERSION_YET,
 	STANDARD_MODULE_PROPERTIES
 };
 /* }}} */
 
 #ifdef COMPILE_DL_OPENSSL
-ZEND_GET_MODULE(openssl)
+ZEND_GET_MODULE(openssl_incr)
 #endif
 
-static int le_key;
 static int le_x509;
-static int le_csr;
 
 /* {{{ resource destructors */
 static void php_x509_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
@@ -164,16 +116,10 @@ static void php_x509_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 /* }}} */
 
 
-/* openssl -> PHP "bridging" */
-/* true global; readonly after module startup */
-static char default_ssl_conf_filename[MAXPATHLEN];
- 
 /* {{{ PHP_MINIT_FUNCTION
  */
-PHP_MINIT_FUNCTION(openssl)
+PHP_MINIT_FUNCTION(openssl_incr)
 {
-	char * config_filename;
-
 	//le_key = zend_register_list_destructors_ex(php_pkey_free, NULL, "OpenSSL key", module_number);
 
 	SSL_library_init();
@@ -227,19 +173,17 @@ PHP_MINIT_FUNCTION(openssl)
 
 /* {{{ PHP_MINFO_FUNCTION
  */
-PHP_MINFO_FUNCTION(openssl)
+PHP_MINFO_FUNCTION(openssl_incr)
 {
 	php_info_print_table_start();
-	php_info_print_table_row(2, "OpenSSL support", "enabled");
-	php_info_print_table_row(2, "OpenSSL Library Version", SSLeay_version(SSLEAY_VERSION));
-	php_info_print_table_row(2, "OpenSSL Header Version", OPENSSL_VERSION_TEXT);
+	php_info_print_table_row(2, "OpenSSL-incremental support", "enabled");
 	php_info_print_table_end();
 }
 /* }}} */
 
 /* {{{ PHP_MSHUTDOWN_FUNCTION
  */
-PHP_MSHUTDOWN_FUNCTION(openssl)
+PHP_MSHUTDOWN_FUNCTION(openssl_incr)
 {
 	EVP_cleanup();
 	return SUCCESS;
