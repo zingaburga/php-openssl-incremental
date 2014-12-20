@@ -44,32 +44,62 @@ enum php_openssl_cipher_type {
 };
 */
 
-PHP_FUNCTION(openssl_digest);
-PHP_FUNCTION(openssl_encrypt);
-PHP_FUNCTION(openssl_decrypt);
+typedef struct {
+	EVP_MD_CTX md_ctx;
+	int complete;
+	int siglen;
+} php_openssl_digest_ctx;
+
+PHP_FUNCTION(openssl_digest_init);
+PHP_FUNCTION(openssl_digest_update);
+PHP_FUNCTION(openssl_digest_final);
+PHP_FUNCTION(openssl_encrypt_init);
+PHP_FUNCTION(openssl_encrypt_update);
+PHP_FUNCTION(openssl_encrypt_final);
+PHP_FUNCTION(openssl_decrypt_init);
+PHP_FUNCTION(openssl_decrypt_update);
+PHP_FUNCTION(openssl_decrypt_final);
 
 /* {{{ arginfo */
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_digest, 0, 0, 2)
-    ZEND_ARG_INFO(0, data)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_digest_init, 0, 0, 1)
     ZEND_ARG_INFO(0, method)
+ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_digest_update, 0, 0, 2)
+    ZEND_ARG_INFO(0, ctx)
+    ZEND_ARG_INFO(0, data)
+ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_digest_final, 0, 0, 1)
+    ZEND_ARG_INFO(0, ctx)
     ZEND_ARG_INFO(0, raw_output)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_encrypt, 0, 0, 3)
-    ZEND_ARG_INFO(0, data)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_encrypt_init, 0, 0, 2)
     ZEND_ARG_INFO(0, method)
     ZEND_ARG_INFO(0, password)
     ZEND_ARG_INFO(0, options)
     ZEND_ARG_INFO(0, iv)
 ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_decrypt, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_encrypt_update, 0, 0, 2)
+    ZEND_ARG_INFO(0, ctx)
     ZEND_ARG_INFO(0, data)
+ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_encrypt_final, 0, 0, 1)
+    ZEND_ARG_INFO(0, ctx)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_decrypt_init, 0, 0, 2)
     ZEND_ARG_INFO(0, method)
     ZEND_ARG_INFO(0, password)
     ZEND_ARG_INFO(0, options)
     ZEND_ARG_INFO(0, iv)
+ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_decrypt_update, 0, 0, 2)
+    ZEND_ARG_INFO(0, ctx)
+    ZEND_ARG_INFO(0, data)
+ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_decrypt_final, 0, 0, 1)
+    ZEND_ARG_INFO(0, ctx)
 ZEND_END_ARG_INFO()
 
 
@@ -79,9 +109,15 @@ ZEND_END_ARG_INFO()
  */
 const zend_function_entry openssl_functions[] = {
 
-	PHP_FE(openssl_digest,				arginfo_openssl_digest)
-	PHP_FE(openssl_encrypt,				arginfo_openssl_encrypt)
-	PHP_FE(openssl_decrypt,				arginfo_openssl_decrypt)
+	PHP_FE(openssl_digest_init,				arginfo_openssl_digest_init)
+	PHP_FE(openssl_digest_update,				arginfo_openssl_digest_update)
+	PHP_FE(openssl_digest_final,				arginfo_openssl_digest_final)
+	PHP_FE(openssl_encrypt_init,				arginfo_openssl_encrypt_init)
+	PHP_FE(openssl_encrypt_update,				arginfo_openssl_encrypt_update)
+	PHP_FE(openssl_encrypt_final,				arginfo_openssl_encrypt_final)
+	PHP_FE(openssl_decrypt_init,				arginfo_openssl_decrypt_init)
+	PHP_FE(openssl_decrypt_update,				arginfo_openssl_decrypt_update)
+	PHP_FE(openssl_decrypt_final,				arginfo_openssl_decrypt_final)
 	PHP_FE_END
 };
 /* }}} */
@@ -106,13 +142,19 @@ zend_module_entry openssl_incr_module_entry = {
 ZEND_GET_MODULE(openssl_incr)
 #endif
 
-static int le_x509;
+#define PHP_OPENSSL_CTX_DIGEST_NAME "OpenSSL digest context"
+#define PHP_OPENSSL_CTX_ENCRYPT_NAME "OpenSSL digest context"
+#define PHP_OPENSSL_CTX_DECRYPT_NAME "OpenSSL digest context"
+static int le_digest;
+static int le_encrypt;
+static int le_decrypt;
 
 /* {{{ resource destructors */
-static void php_x509_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
+static void php_digest_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 {
-	X509 *x509 = (X509 *)rsrc->ptr;
-	X509_free(x509);
+	php_openssl_digest_ctx* ctx = (php_openssl_digest_ctx*)rsrc->ptr;
+	if(!ctx->complete) EVP_MD_CTX_destroy(&ctx->md_ctx);
+	efree(ctx);
 }
 
 /* }}} */
@@ -122,7 +164,7 @@ static void php_x509_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
  */
 PHP_MINIT_FUNCTION(openssl_incr)
 {
-	//le_key = zend_register_list_destructors_ex(php_pkey_free, NULL, "OpenSSL key", module_number);
+	le_digest = zend_register_list_destructors_ex(php_digest_free, NULL, PHP_OPENSSL_CTX_DIGEST_NAME, module_number);
 
 	SSL_library_init();
 	OpenSSL_add_all_ciphers();
@@ -194,19 +236,16 @@ PHP_MSHUTDOWN_FUNCTION(openssl_incr)
 
 
 
-/* {{{ proto string openssl_digest(string data, string method [, bool raw_output=false])
+/* {{{ proto resource openssl_digest_init(string method [, bool raw_output=false])
    Computes digest hash value for given data using given method, returns raw or binhex encoded string */
-PHP_FUNCTION(openssl_digest)
+PHP_FUNCTION(openssl_digest_init)
 {
-	zend_bool raw_output = 0;
-	char *data, *method;
-	int data_len, method_len;
+	char *method;
+	int method_len;
 	const EVP_MD *mdtype;
-	EVP_MD_CTX md_ctx;
-	int siglen;
-	unsigned char *sigbuf;
+	php_openssl_digest_ctx* ctx;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ss|b", &data, &data_len, &method, &method_len, &raw_output) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &method, &method_len) == FAILURE) {
 		return;
 	}
 	mdtype = EVP_get_digestbyname(method);
@@ -215,20 +254,59 @@ PHP_FUNCTION(openssl_digest)
 		RETURN_FALSE;
 	}
 
-	siglen = EVP_MD_size(mdtype);
-	sigbuf = emalloc(siglen + 1);
+	ctx = (php_openssl_digest_ctx*) emalloc(sizeof(php_openssl_digest_ctx));
+	ctx->siglen = EVP_MD_size(mdtype);
 
-	EVP_DigestInit(&md_ctx, mdtype);
-	EVP_DigestUpdate(&md_ctx, (unsigned char *)data, data_len);
-	if (EVP_DigestFinal (&md_ctx, (unsigned char *)sigbuf, (unsigned int *)&siglen)) {
+	EVP_DigestInit(&(ctx->md_ctx), mdtype);
+	ctx->complete = FALSE;
+	
+	ZEND_REGISTER_RESOURCE(return_value, ctx, le_digest);
+}
+/* }}} */
+/* {{{ proto bool openssl_digest_update(resource ctx, string data)
+   Computes digest hash value for given data using given method, returns raw or binhex encoded string */
+PHP_FUNCTION(openssl_digest_update)
+{
+	zval* zv
+	char *data;
+	int data_len;
+	php_openssl_digest_ctx* ctx;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rs", &zv, &data, &data_len) == FAILURE) {
+		return;
+	}
+	ZEND_FETCH_RESOURCE(ctx, php_openssl_digest_ctx*, &zv, -1, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
+	EVP_DigestUpdate(&(ctx->md_ctx), (unsigned char *)data, data_len);
+	RETVAL_TRUE;
+}
+/* }}} */
+/* {{{ proto string openssl_digest_final(resource ctx[, bool raw_output=false])
+   Computes digest hash value for given data using given method, returns raw or binhex encoded string */
+PHP_FUNCTION(openssl_digest_final)
+{
+	zend_bool raw_output = 0;
+	unsigned char *sigbuf;
+	zval* zv
+	php_openssl_digest_ctx* ctx;
+	
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r|b", &zv, &raw_output) == FAILURE) {
+		return;
+	}
+	ZEND_FETCH_RESOURCE(ctx, php_openssl_digest_ctx*, &zv, -1, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
+	
+	sigbuf = emalloc(ctx->siglen + 1);
+	ctx->complete = TRUE;
+	
+	if (EVP_DigestFinal (&(ctx->md_ctx), (unsigned char *)sigbuf, (unsigned int *)&(ctx->siglen))) {
 		if (raw_output) {
-			sigbuf[siglen] = '\0';
+			sigbuf[ctx->siglen] = '\0';
 			RETVAL_STRINGL((char *)sigbuf, siglen, 0);
 		} else {
-			int digest_str_len = siglen * 2;
+			int digest_str_len = ctx->siglen * 2;
 			char *digest_str = emalloc(digest_str_len + 1);
 
-			make_digest_ex(digest_str, sigbuf, siglen);
+			make_digest_ex(digest_str, sigbuf, ctx->siglen);
 			efree(sigbuf);
 			RETVAL_STRINGL(digest_str, digest_str_len, 0);
 		}
