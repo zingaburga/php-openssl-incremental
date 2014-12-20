@@ -14,6 +14,7 @@
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 
+/*
 #define OPENSSL_ALGO_SHA1 	1
 #define OPENSSL_ALGO_MD5	2
 #define OPENSSL_ALGO_MD4	3
@@ -41,6 +42,7 @@ enum php_openssl_cipher_type {
 
 	PHP_OPENSSL_CIPHER_DEFAULT = PHP_OPENSSL_CIPHER_RC2_40
 };
+*/
 
 PHP_FUNCTION(openssl_digest);
 PHP_FUNCTION(openssl_encrypt);
