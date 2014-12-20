@@ -258,7 +258,7 @@ PHP_FUNCTION(openssl_digest_init)
 	ctx->siglen = EVP_MD_size(mdtype);
 
 	EVP_DigestInit(&(ctx->md_ctx), mdtype);
-	ctx->complete = FALSE;
+	ctx->complete = 0;
 	
 	ZEND_REGISTER_RESOURCE(return_value, ctx, le_digest);
 }
@@ -267,7 +267,7 @@ PHP_FUNCTION(openssl_digest_init)
    Computes digest hash value for given data using given method, returns raw or binhex encoded string */
 PHP_FUNCTION(openssl_digest_update)
 {
-	zval* zv
+	zval* zv;
 	char *data;
 	int data_len;
 	php_openssl_digest_ctx* ctx;
@@ -286,7 +286,7 @@ PHP_FUNCTION(openssl_digest_final)
 {
 	zend_bool raw_output = 0;
 	unsigned char *sigbuf;
-	zval* zv
+	zval* zv;
 	php_openssl_digest_ctx* ctx;
 	
 
@@ -296,12 +296,12 @@ PHP_FUNCTION(openssl_digest_final)
 	ZEND_FETCH_RESOURCE(ctx, php_openssl_digest_ctx*, &zv, -1, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
 	
 	sigbuf = emalloc(ctx->siglen + 1);
-	ctx->complete = TRUE;
+	ctx->complete = 1;
 	
 	if (EVP_DigestFinal (&(ctx->md_ctx), (unsigned char *)sigbuf, (unsigned int *)&(ctx->siglen))) {
 		if (raw_output) {
 			sigbuf[ctx->siglen] = '\0';
-			RETVAL_STRINGL((char *)sigbuf, siglen, 0);
+			RETVAL_STRINGL((char *)sigbuf, ctx->siglen, 0);
 		} else {
 			int digest_str_len = ctx->siglen * 2;
 			char *digest_str = emalloc(digest_str_len + 1);
