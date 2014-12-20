@@ -257,7 +257,7 @@ PHP_MSHUTDOWN_FUNCTION(openssl_incr)
 
 
 
-/* {{{ proto resource openssl_digest_init(string method [, bool raw_output=false])
+/* {{{ proto resource openssl_digest_init(string method)
    Initialises digest hash calculation for given method, returns a hashing context to be used with openssl_digest_update and openssl_digest_final */
 PHP_FUNCTION(openssl_digest_init)
 {
@@ -272,7 +272,7 @@ PHP_FUNCTION(openssl_digest_init)
 	mdtype = EVP_get_digestbyname(method);
 	if (!mdtype) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown signature algorithm");
-		RETURN_FALSE;
+		RETURN_NULL;
 	}
 
 	ctx = (php_openssl_digest_ctx*) emalloc(sizeof(php_openssl_digest_ctx));
@@ -382,7 +382,7 @@ PHP_FUNCTION(openssl_encrypt_init)
 	cipher_type = EVP_get_cipherbyname(method);
 	if (!cipher_type) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
-		RETURN_FALSE;
+		RETURN_NULL;
 	}
 	
 	ctx = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
@@ -501,7 +501,7 @@ PHP_FUNCTION(openssl_decrypt_init)
 	cipher_type = EVP_get_cipherbyname(method);
 	if (!cipher_type) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
-		RETURN_FALSE;
+		RETURN_NULL;
 	}
 	
 	ctx = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
