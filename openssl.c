@@ -7,6 +7,7 @@
 #include "php_openssl.h"
 
 /* PHP Includes */
+#include "ext/standard/info.h"
 #include "ext/standard/md5.h"
 #include "ext/standard/base64.h"
 
@@ -49,6 +50,13 @@ typedef struct {
 	int complete;
 	int siglen;
 } php_openssl_digest_ctx;
+typedef struct {
+	EVP_CIPHER_CTX cipher_ctx;
+	int complete;
+	char* iv;
+	unsigned char* key;
+	int block_size;
+} php_openssl_encdec_ctx;
 
 PHP_FUNCTION(openssl_digest_init);
 PHP_FUNCTION(openssl_digest_update);
@@ -143,8 +151,8 @@ ZEND_GET_MODULE(openssl_incr)
 #endif
 
 #define PHP_OPENSSL_CTX_DIGEST_NAME "OpenSSL digest context"
-#define PHP_OPENSSL_CTX_ENCRYPT_NAME "OpenSSL digest context"
-#define PHP_OPENSSL_CTX_DECRYPT_NAME "OpenSSL digest context"
+#define PHP_OPENSSL_CTX_ENCRYPT_NAME "OpenSSL encrypt context"
+#define PHP_OPENSSL_CTX_DECRYPT_NAME "OpenSSL decrypt context"
 static int le_digest;
 static int le_encrypt;
 static int le_decrypt;
@@ -153,7 +161,18 @@ static int le_decrypt;
 static void php_digest_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 {
 	php_openssl_digest_ctx* ctx = (php_openssl_digest_ctx*)rsrc->ptr;
-	if(!ctx->complete) EVP_MD_CTX_destroy(&ctx->md_ctx);
+	if(!ctx->complete) EVP_MD_CTX_destroy(&(ctx->md_ctx));
+	efree(ctx);
+}
+
+static void php_encdec_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
+{
+	php_openssl_encdec_ctx* ctx = (php_openssl_encdec_ctx*)rsrc->ptr;
+	if(ctx->key) {
+		efree(ctx->key);
+		efree(ctx->iv);
+	}
+	if(!ctx->complete) EVP_CIPHER_CTX_cleanup(&(ctx->cipher_ctx));
 	efree(ctx);
 }
 
@@ -165,6 +184,8 @@ static void php_digest_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 PHP_MINIT_FUNCTION(openssl_incr)
 {
 	le_digest = zend_register_list_destructors_ex(php_digest_free, NULL, PHP_OPENSSL_CTX_DIGEST_NAME, module_number);
+	le_encrypt = zend_register_list_destructors_ex(php_encdec_free, NULL, PHP_OPENSSL_CTX_ENCRYPT_NAME, module_number);
+	le_decrypt = zend_register_list_destructors_ex(php_encdec_free, NULL, PHP_OPENSSL_CTX_DECRYPT_NAME, module_number);
 
 	SSL_library_init();
 	OpenSSL_add_all_ciphers();
@@ -237,7 +258,7 @@ PHP_MSHUTDOWN_FUNCTION(openssl_incr)
 
 
 /* {{{ proto resource openssl_digest_init(string method [, bool raw_output=false])
-   Computes digest hash value for given data using given method, returns raw or binhex encoded string */
+   Initialises digest hash calculation for given method, returns a hashing context to be used with openssl_digest_update and openssl_digest_final */
 PHP_FUNCTION(openssl_digest_init)
 {
 	char *method;
@@ -264,7 +285,7 @@ PHP_FUNCTION(openssl_digest_init)
 }
 /* }}} */
 /* {{{ proto bool openssl_digest_update(resource ctx, string data)
-   Computes digest hash value for given data using given method, returns raw or binhex encoded string */
+   Updates digest hash context with given data, returns true */
 PHP_FUNCTION(openssl_digest_update)
 {
 	zval* zv;
@@ -276,12 +297,16 @@ PHP_FUNCTION(openssl_digest_update)
 		return;
 	}
 	ZEND_FETCH_RESOURCE(ctx, php_openssl_digest_ctx*, &zv, -1, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
+	if (ctx->complete) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
+		RETURN_FALSE;
+	}
 	EVP_DigestUpdate(&(ctx->md_ctx), (unsigned char *)data, data_len);
 	RETVAL_TRUE;
 }
 /* }}} */
 /* {{{ proto string openssl_digest_final(resource ctx[, bool raw_output=false])
-   Computes digest hash value for given data using given method, returns raw or binhex encoded string */
+   Returns digest hash value for given hashing context, as raw or binhex encoded string */
 PHP_FUNCTION(openssl_digest_final)
 {
 	zend_bool raw_output = 0;
@@ -294,6 +319,10 @@ PHP_FUNCTION(openssl_digest_final)
 		return;
 	}
 	ZEND_FETCH_RESOURCE(ctx, php_openssl_digest_ctx*, &zv, -1, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
+	if (ctx->complete) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
+		RETURN_FALSE;
+	}
 	
 	sigbuf = emalloc(ctx->siglen + 1);
 	ctx->complete = 1;
@@ -317,54 +346,37 @@ PHP_FUNCTION(openssl_digest_final)
 }
 /* }}} */
 
-static zend_bool php_openssl_validate_iv(char **piv, int *piv_len, int iv_required_len TSRMLS_DC)
+static void php_openssl_copy_iv(char *piv, int piv_len, int iv_required_len, char *out_iv TSRMLS_DC)
 {
-	char *iv_new;
-
 	/* Best case scenario, user behaved */
-	if (*piv_len == iv_required_len) {
-		return 0;
+	if (piv_len == iv_required_len) {
+		memcpy(out_iv, piv, piv_len);
 	}
-
-	iv_new = ecalloc(1, iv_required_len + 1);
-
-	if (*piv_len <= 0) {
-		/* BC behavior */
-		*piv_len = iv_required_len;
-		*piv     = iv_new;
-		return 1;
+	else if (piv_len <= 0) {
+		memset(out_iv, 0, iv_required_len);
 	}
-
-	if (*piv_len < iv_required_len) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "IV passed is only %d bytes long, cipher expects an IV of precisely %d bytes, padding with \\0", *piv_len, iv_required_len);
-		memcpy(iv_new, *piv, *piv_len);
-		*piv_len = iv_required_len;
-		*piv     = iv_new;
-		return 1;
+	else if (piv_len < iv_required_len) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "IV passed is only %d bytes long, cipher expects an IV of precisely %d bytes, padding with \\0", piv_len, iv_required_len);
+		memset(out_iv + piv_len, 0, iv_required_len - piv_len);
 	}
-
-	php_error_docref(NULL TSRMLS_CC, E_WARNING, "IV passed is %d bytes long which is longer than the %d expected by selected cipher, truncating", *piv_len, iv_required_len);
-	memcpy(iv_new, *piv, iv_required_len);
-	*piv_len = iv_required_len;
-	*piv     = iv_new;
-	return 1;
-
+	else {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "IV passed is %d bytes long which is longer than the %d expected by selected cipher, truncating", piv_len, iv_required_len);
+		memcpy(out_iv, piv, iv_required_len);
+	}
 }
 
-/* {{{ proto string openssl_encrypt(string data, string method, string password [, long options=0 [, string $iv='']])
-   Encrypts given data with given method and key, returns raw or base64 encoded string */
-PHP_FUNCTION(openssl_encrypt)
+/* {{{ proto resource openssl_encrypt_init(string method, string password [, long options=0 [, string $iv='']])
+   Creates and returns a encryption context for given method and key */
+PHP_FUNCTION(openssl_encrypt_init)
 {
 	long options = 0;
-	char *data, *method, *password, *iv = "";
-	int data_len, method_len, password_len, iv_len = 0, max_iv_len;
+	char *method, *password, *iv = "";
+	int method_len, password_len, iv_len = 0, max_iv_len;
 	const EVP_CIPHER *cipher_type;
-	EVP_CIPHER_CTX cipher_ctx;
-	int i=0, outlen, keylen;
-	unsigned char *outbuf, *key;
-	zend_bool free_iv;
+	int keylen;
+	php_openssl_encdec_ctx* ctx;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sss|ls", &data, &data_len, &method, &method_len, &password, &password_len, &options, &iv, &iv_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ss|ls", &method, &method_len, &password, &password_len, &options, &iv, &iv_len) == FAILURE) {
 		return;
 	}
 	cipher_type = EVP_get_cipherbyname(method);
@@ -372,86 +384,118 @@ PHP_FUNCTION(openssl_encrypt)
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
 		RETURN_FALSE;
 	}
+	
+	ctx = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
 
 	keylen = EVP_CIPHER_key_length(cipher_type);
+	ctx->key = emalloc(keylen);
+	memcpy(ctx->key, password, password_len);
 	if (keylen > password_len) {
-		key = emalloc(keylen);
-		memset(key, 0, keylen);
-		memcpy(key, password, password_len);
-	} else {
-		key = (unsigned char*)password;
+		memset(ctx->key + password_len, 0, keylen - password_len);
 	}
 
 	max_iv_len = EVP_CIPHER_iv_length(cipher_type);
 	if (iv_len <= 0 && max_iv_len > 0) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Using an empty Initialization Vector (iv) is potentially insecure and not recommended");
 	}
-	free_iv = php_openssl_validate_iv(&iv, &iv_len, max_iv_len TSRMLS_CC);
+	ctx->iv = emalloc(max_iv_len + 1);
+	php_openssl_copy_iv(iv, iv_len, max_iv_len, ctx->iv TSRMLS_CC);
 
-	outlen = data_len + EVP_CIPHER_block_size(cipher_type);
+	EVP_EncryptInit(&(ctx->cipher_ctx), cipher_type, NULL, NULL);
+	if (password_len > keylen) {
+		EVP_CIPHER_CTX_set_key_length(&(ctx->cipher_ctx), password_len);
+	}
+	EVP_EncryptInit_ex(&(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)iv);
+	if (options & OPENSSL_ZERO_PADDING) {
+		EVP_CIPHER_CTX_set_padding(&(ctx->cipher_ctx), 0);
+	}
+	ctx->block_size = EVP_CIPHER_block_size(cipher_type);
+	ctx->complete = 0;
+	
+	ZEND_REGISTER_RESOURCE(return_value, ctx, le_encrypt);
+}
+/* }}} */
+/* {{{ proto string openssl_encrypt_update(resource ctx, string data)
+   Encrypts given data using given encryption context, returns raw string */
+PHP_FUNCTION(openssl_encrypt_update)
+{
+	zval* zv;
+	char *data;
+	int data_len, outlen;
+	unsigned char *outbuf;
+	php_openssl_encdec_ctx* ctx;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rs", &zv, &data, &data_len) == FAILURE) {
+		return;
+	}
+	ZEND_FETCH_RESOURCE(ctx, php_openssl_encdec_ctx*, &zv, -1, PHP_OPENSSL_CTX_ENCRYPT_NAME, le_encrypt);
+	if (ctx->complete) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
+		RETURN_FALSE;
+	}
+	
+	if(data_len < 1) {
+		RETURN_STRINGL("", 0, 1);
+	}
+
+	outlen = data_len + ctx->block_size;
 	outbuf = emalloc(outlen + 1);
 
-	EVP_EncryptInit(&cipher_ctx, cipher_type, NULL, NULL);
-	if (password_len > keylen) {
-		EVP_CIPHER_CTX_set_key_length(&cipher_ctx, password_len);
-	}
-	EVP_EncryptInit_ex(&cipher_ctx, NULL, NULL, key, (unsigned char *)iv);
-	if (options & OPENSSL_ZERO_PADDING) {
-		EVP_CIPHER_CTX_set_padding(&cipher_ctx, 0);
-	}
-	if (data_len > 0) {
-		EVP_EncryptUpdate(&cipher_ctx, outbuf, &i, (unsigned char *)data, data_len);
-	}
-	outlen = i;
-	if (EVP_EncryptFinal(&cipher_ctx, (unsigned char *)outbuf + i, &i)) {
-		outlen += i;
-		if (options & OPENSSL_RAW_DATA) {
-			outbuf[outlen] = '\0';
-			RETVAL_STRINGL((char *)outbuf, outlen, 0);
-		} else {
-			int base64_str_len;
-			char *base64_str;
+	EVP_EncryptUpdate(&(ctx->cipher_ctx), outbuf, &outlen, (unsigned char *)data, data_len);
+	outbuf[outlen] = '\0';
+	RETVAL_STRINGL((char *)outbuf, outlen, 0);
+}
+/* }}} */
+/* {{{ proto string openssl_encrypt_final(resource ctx)
+   Returns any remaining data from encrypting context, and cleans everything up */
+PHP_FUNCTION(openssl_encrypt_final)
+{
+	zval* zv;
+	int outlen;
+	unsigned char *outbuf;
+	php_openssl_encdec_ctx* ctx;
 
-			base64_str = (char*)php_base64_encode(outbuf, outlen, &base64_str_len);
-			efree(outbuf);
-			RETVAL_STRINGL(base64_str, base64_str_len, 0);
-		}
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &zv) == FAILURE) {
+		return;
+	}
+	ZEND_FETCH_RESOURCE(ctx, php_openssl_encdec_ctx*, &zv, -1, PHP_OPENSSL_CTX_ENCRYPT_NAME, le_encrypt);
+	if (ctx->complete) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
+		RETURN_FALSE;
+	}
+
+	outlen = ctx->block_size;
+	outbuf = emalloc(outlen + 1);
+	
+	ctx->complete = 1;
+	if (EVP_EncryptFinal(&(ctx->cipher_ctx), outbuf, &outlen)) {
+		outbuf[outlen] = '\0';
+		RETVAL_STRINGL((char *)outbuf, outlen, 0);
 	} else {
 		efree(outbuf);
 		RETVAL_FALSE;
 	}
-	if (key != (unsigned char*)password) {
-		efree(key);
-	}
-	if (free_iv) {
-		efree(iv);
-	}
-	EVP_CIPHER_CTX_cleanup(&cipher_ctx);
+	efree(ctx->key);
+	ctx->key = NULL;
+	efree(ctx->iv);
+	ctx->iv = NULL;
+	EVP_CIPHER_CTX_cleanup(&(ctx->cipher_ctx));
 }
 /* }}} */
 
-/* {{{ proto string openssl_decrypt(string data, string method, string password [, long options=0 [, string $iv = '']])
-   Takes raw or base64 encoded string and dectupt it using given method and key */
-PHP_FUNCTION(openssl_decrypt)
+/* {{{ proto resource openssl_decrypt_init(string method, string password [, long options=0 [, string $iv = '']])
+   Creates and returns a decryption context for given method and key */
+PHP_FUNCTION(openssl_decrypt_init)
 {
 	long options = 0;
-	char *data, *method, *password, *iv = "";
-	int data_len, method_len, password_len, iv_len = 0;
+	char *method, *password, *iv = "";
+	int method_len, password_len, iv_len = 0, max_iv_len;
 	const EVP_CIPHER *cipher_type;
-	EVP_CIPHER_CTX cipher_ctx;
-	int i, outlen, keylen;
-	unsigned char *outbuf, *key;
-	int base64_str_len;
-	char *base64_str = NULL;
-	zend_bool free_iv;
+	int keylen;
+	php_openssl_encdec_ctx* ctx;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sss|ls", &data, &data_len, &method, &method_len, &password, &password_len, &options, &iv, &iv_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ss|ls", &method, &method_len, &password, &password_len, &options, &iv, &iv_len) == FAILURE) {
 		return;
-	}
-
-	if (!method_len) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
-		RETURN_FALSE;
 	}
 
 	cipher_type = EVP_get_cipherbyname(method);
@@ -459,59 +503,100 @@ PHP_FUNCTION(openssl_decrypt)
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
 		RETURN_FALSE;
 	}
-
-	if (!(options & OPENSSL_RAW_DATA)) {
-		base64_str = (char*)php_base64_decode((unsigned char*)data, data_len, &base64_str_len);
-		if (!base64_str) {
-			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Failed to base64 decode the input");
-			RETURN_FALSE;
-		}
-		data_len = base64_str_len;
-		data = base64_str;
-	}
+	
+	ctx = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
 
 	keylen = EVP_CIPHER_key_length(cipher_type);
+	ctx->key = emalloc(keylen);
+	memcpy(ctx->key, password, password_len);
 	if (keylen > password_len) {
-		key = emalloc(keylen);
-		memset(key, 0, keylen);
-		memcpy(key, password, password_len);
-	} else {
-		key = (unsigned char*)password;
+		memset(ctx->key + password_len, 0, keylen - password_len);
 	}
 
-	free_iv = php_openssl_validate_iv(&iv, &iv_len, EVP_CIPHER_iv_length(cipher_type) TSRMLS_CC);
+	max_iv_len = EVP_CIPHER_iv_length(cipher_type);
+	ctx->iv = emalloc(max_iv_len + 1);
+	php_openssl_copy_iv(iv, iv_len, max_iv_len, ctx->iv TSRMLS_CC);
 
-	outlen = data_len + EVP_CIPHER_block_size(cipher_type);
+	EVP_DecryptInit(&(ctx->cipher_ctx), cipher_type, NULL, NULL);
+	if (password_len > keylen) {
+		EVP_CIPHER_CTX_set_key_length(&(ctx->cipher_ctx), password_len);
+	}
+	EVP_DecryptInit_ex(&(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)iv);
+	if (options & OPENSSL_ZERO_PADDING) {
+		EVP_CIPHER_CTX_set_padding(&(ctx->cipher_ctx), 0);
+	}
+	ctx->block_size = EVP_CIPHER_block_size(cipher_type);
+	ctx->complete = 0;
+	
+	ZEND_REGISTER_RESOURCE(return_value, ctx, le_decrypt);
+}
+/* }}} */
+/* {{{ proto string openssl_decrypt_update(resource ctx, string data)
+   Decrypts and returns given raw data using given decryption context */
+PHP_FUNCTION(openssl_decrypt_update)
+{
+	zval* zv;
+	char *data;
+	int data_len;
+	int i, outlen;
+	unsigned char *outbuf;
+	php_openssl_encdec_ctx* ctx;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rs", &zv, &data, &data_len) == FAILURE) {
+		return;
+	}
+	ZEND_FETCH_RESOURCE(ctx, php_openssl_encdec_ctx*, &zv, -1, PHP_OPENSSL_CTX_DECRYPT_NAME, le_decrypt);
+	if (ctx->complete) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
+		RETURN_FALSE;
+	}
+	
+	if(data_len < 1) {
+		RETURN_STRINGL("", 0, 1);
+	}
+
+	outlen = data_len + ctx->block_size;
 	outbuf = emalloc(outlen + 1);
 
-	EVP_DecryptInit(&cipher_ctx, cipher_type, NULL, NULL);
-	if (password_len > keylen) {
-		EVP_CIPHER_CTX_set_key_length(&cipher_ctx, password_len);
+	EVP_DecryptUpdate(&(ctx->cipher_ctx), outbuf, &outlen, (unsigned char *)data, data_len);
+	outbuf[outlen] = '\0';
+	RETVAL_STRINGL((char *)outbuf, outlen, 0);
+}
+/* }}} */
+/* {{{ proto string openssl_decrypt_final(resource ctx)
+   Returns any remaining data from decrypting context, and cleans everything up */
+PHP_FUNCTION(openssl_decrypt_final)
+{
+	zval* zv;
+	int outlen;
+	unsigned char *outbuf;
+	php_openssl_encdec_ctx* ctx;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &zv) == FAILURE) {
+		return;
 	}
-	EVP_DecryptInit_ex(&cipher_ctx, NULL, NULL, key, (unsigned char *)iv);
-	if (options & OPENSSL_ZERO_PADDING) {
-		EVP_CIPHER_CTX_set_padding(&cipher_ctx, 0);
+	ZEND_FETCH_RESOURCE(ctx, php_openssl_encdec_ctx*, &zv, -1, PHP_OPENSSL_CTX_DECRYPT_NAME, le_decrypt);
+	if (ctx->complete) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
+		RETURN_FALSE;
 	}
-	EVP_DecryptUpdate(&cipher_ctx, outbuf, &i, (unsigned char *)data, data_len);
-	outlen = i;
-	if (EVP_DecryptFinal(&cipher_ctx, (unsigned char *)outbuf + i, &i)) {
-		outlen += i;
+
+	outlen = ctx->block_size;
+	outbuf = emalloc(outlen + 1);
+
+	ctx->complete = 1;
+	if (EVP_DecryptFinal(&(ctx->cipher_ctx), (unsigned char *)outbuf, &outlen)) {
 		outbuf[outlen] = '\0';
 		RETVAL_STRINGL((char *)outbuf, outlen, 0);
 	} else {
 		efree(outbuf);
 		RETVAL_FALSE;
 	}
-	if (key != (unsigned char*)password) {
-		efree(key);
-	}
-	if (free_iv) {
-		efree(iv);
-	}
-	if (base64_str) {
-		efree(base64_str);
-	}
- 	EVP_CIPHER_CTX_cleanup(&cipher_ctx);
+	efree(ctx->key);
+	ctx->key = NULL;
+	efree(ctx->iv);
+	ctx->iv = NULL;
+ 	EVP_CIPHER_CTX_cleanup(&(ctx->cipher_ctx));
 }
 /* }}} */
 
