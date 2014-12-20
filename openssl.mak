@@ -26,7 +26,6 @@ endif
 
 # Source files
 C_SRC = openssl.c \
-        xp_ssl.c \
         start.c \
 
 CPP_SRC_NODIR = $(notdir $(CPP_SRC))

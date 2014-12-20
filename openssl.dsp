@@ -94,10 +94,6 @@ LINK32=link.exe
 
 SOURCE=.\openssl.c
 # End Source File
-# Begin Source File
-
-SOURCE=.\xp_ssl.c
-# End Source File
 # End Group
 # Begin Group "Header Files"
 
