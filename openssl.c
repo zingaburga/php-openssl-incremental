@@ -14,6 +14,7 @@
 /* OpenSSL includes */
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
+#include <openssl/sha.h>
 
 #ifndef HAVE_OPENSSL_EXT
 #define OPENSSL_ALGO_SHA1 	1
@@ -69,6 +70,8 @@ PHP_FUNCTION(openssl_decrypt_init);
 PHP_FUNCTION(openssl_decrypt_update);
 PHP_FUNCTION(openssl_decrypt_final);
 
+PHP_FUNCTION(openssl_sha1);
+
 /* {{{ arginfo */
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_digest_init, 0, 0, 1)
@@ -111,6 +114,11 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_decrypt_final, 0, 0, 1)
     ZEND_ARG_INFO(0, ctx)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_sha1, 0, 0, 1)
+    ZEND_ARG_INFO(0, method)
+    ZEND_ARG_INFO(0, raw_output)
+ZEND_END_ARG_INFO()
+
 
 /* }}} */
 
@@ -127,6 +135,7 @@ const zend_function_entry openssl_functions[] = {
 	PHP_FE(openssl_decrypt_init,				arginfo_openssl_decrypt_init)
 	PHP_FE(openssl_decrypt_update,				arginfo_openssl_decrypt_update)
 	PHP_FE(openssl_decrypt_final,				arginfo_openssl_decrypt_final)
+	PHP_FE(openssl_sha1,				arginfo_openssl_sha1)
 	PHP_FE_END
 };
 /* }}} */
@@ -260,7 +269,6 @@ PHP_MSHUTDOWN_FUNCTION(openssl_incr)
 }
 /* }}} */
 #endif
-
 
 
 /* {{{ proto resource openssl_digest_init(string method)
@@ -605,6 +613,45 @@ PHP_FUNCTION(openssl_decrypt_final)
  	EVP_CIPHER_CTX_cleanup(&(ctx->cipher_ctx));
 }
 /* }}} */
+
+
+
+
+
+/* {{{ proto string openssl_sha1(string data, [, bool raw_output=false])
+   Computes SHA1 hash value for given data, returns raw or binhex encoded string */
+PHP_FUNCTION(openssl_sha1)
+{
+	zend_bool raw_output = 0;
+	char *data;
+	int data_len;
+	SHA_CTX c;
+	unsigned char sigbuf[21];
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|b", &data, &data_len, &raw_output) == FAILURE) {
+		return;
+	}
+
+	SHA1_Init(&c);
+	SHA1_Update(&c, (unsigned char *)data, data_len);
+	if (SHA1_Final ((unsigned char *)sigbuf, &c)) {
+		if (raw_output) {
+			sigbuf[20] = '\0';
+			RETVAL_STRINGL((char *)sigbuf, 20, 0);
+		} else {
+			char digest_str[41];
+			make_digest_ex(digest_str, sigbuf, 20);
+			RETVAL_STRINGL(digest_str, 40, 1);
+		}
+	} else {
+		RETVAL_FALSE;
+	}
+}
+/* }}} */
+
+
+
+
 
 /*
  * Local variables:
