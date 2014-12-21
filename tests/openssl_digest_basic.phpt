@@ -30,7 +30,7 @@ var_dump(bin2hex(openssl_digest_final($h, true)));
 var_dump(openssl_digest_update($h, 'blah'));
 var_dump(openssl_digest_final($h));
 ?>
---EXPECT--
+--EXPECTF--
 string(32) "f0045b6c41d9ec835cb8948c7fec4955"
 bool(true)
 string(40) "aa6e750fef05c2414c18860ad31f2c35e79bf3dc"
