@@ -12,7 +12,9 @@ extern zend_module_entry openssl_incr_module_entry;
 #endif
 
 PHP_MINIT_FUNCTION(openssl_incr);
+#ifndef HAVE_OPENSSL_EXT
 PHP_MSHUTDOWN_FUNCTION(openssl_incr);
+#endif
 PHP_MINFO_FUNCTION(openssl_incr);
 
 #else

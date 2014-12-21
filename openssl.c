@@ -15,7 +15,7 @@
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 
-/*
+#ifndef HAVE_OPENSSL_EXT
 #define OPENSSL_ALGO_SHA1 	1
 #define OPENSSL_ALGO_MD5	2
 #define OPENSSL_ALGO_MD4	3
@@ -43,7 +43,7 @@ enum php_openssl_cipher_type {
 
 	PHP_OPENSSL_CIPHER_DEFAULT = PHP_OPENSSL_CIPHER_RC2_40
 };
-*/
+#endif
 
 typedef struct {
 	EVP_MD_CTX md_ctx;
@@ -137,7 +137,11 @@ zend_module_entry openssl_incr_module_entry = {
 	"openssl_incr",
 	openssl_functions,
 	PHP_MINIT(openssl_incr),
+#ifdef HAVE_OPENSSL_EXT
+	NULL,
+#else
 	PHP_MSHUTDOWN(openssl_incr),
+#endif
 	NULL,
 	NULL,
 	PHP_MINFO(openssl_incr),
@@ -187,6 +191,7 @@ PHP_MINIT_FUNCTION(openssl_incr)
 	le_encrypt = zend_register_list_destructors_ex(php_encdec_free, NULL, PHP_OPENSSL_CTX_ENCRYPT_NAME, module_number);
 	le_decrypt = zend_register_list_destructors_ex(php_encdec_free, NULL, PHP_OPENSSL_CTX_DECRYPT_NAME, module_number);
 
+#ifndef HAVE_OPENSSL_EXT
 	SSL_library_init();
 	OpenSSL_add_all_ciphers();
 	OpenSSL_add_all_digests();
@@ -195,7 +200,6 @@ PHP_MINIT_FUNCTION(openssl_incr)
 	//SSL_load_error_strings();
 	
 	/* signature algorithm constants; assume already defined by OpenSSL extension */
-	/*
 	REGISTER_LONG_CONSTANT("OPENSSL_ALGO_SHA1", OPENSSL_ALGO_SHA1, CONST_CS|CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("OPENSSL_ALGO_MD5", OPENSSL_ALGO_MD5, CONST_CS|CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("OPENSSL_ALGO_MD4", OPENSSL_ALGO_MD4, CONST_CS|CONST_PERSISTENT);
@@ -210,9 +214,8 @@ PHP_MINIT_FUNCTION(openssl_incr)
 	REGISTER_LONG_CONSTANT("OPENSSL_ALGO_SHA512", OPENSSL_ALGO_SHA512, CONST_CS|CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("OPENSSL_ALGO_RMD160", OPENSSL_ALGO_RMD160, CONST_CS|CONST_PERSISTENT);
 #endif
-*/
+
 	/* Ciphers */
-	/*
 #ifndef OPENSSL_NO_RC2
 	REGISTER_LONG_CONSTANT("OPENSSL_CIPHER_RC2_40", PHP_OPENSSL_CIPHER_RC2_40, CONST_CS|CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("OPENSSL_CIPHER_RC2_128", PHP_OPENSSL_CIPHER_RC2_128, CONST_CS|CONST_PERSISTENT);
@@ -230,7 +233,7 @@ PHP_MINIT_FUNCTION(openssl_incr)
  
 	REGISTER_LONG_CONSTANT("OPENSSL_RAW_DATA", OPENSSL_RAW_DATA, CONST_CS|CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("OPENSSL_ZERO_PADDING", OPENSSL_ZERO_PADDING, CONST_CS|CONST_PERSISTENT);
-*/
+#endif
 
 	return SUCCESS;
 }
@@ -246,6 +249,7 @@ PHP_MINFO_FUNCTION(openssl_incr)
 }
 /* }}} */
 
+#ifndef HAVE_OPENSSL_EXT
 /* {{{ PHP_MSHUTDOWN_FUNCTION
  */
 PHP_MSHUTDOWN_FUNCTION(openssl_incr)
@@ -254,6 +258,7 @@ PHP_MSHUTDOWN_FUNCTION(openssl_incr)
 	return SUCCESS;
 }
 /* }}} */
+#endif
 
 
 
