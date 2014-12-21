@@ -1,6 +1,3 @@
-dnl
-dnl $Id$
-dnl
 
 PHP_ARG_WITH(openssl, for OpenSSL support,
 [  --with-openssl[=DIR]      Include OpenSSL support (requires OpenSSL >= 0.9.6)])
@@ -10,7 +7,8 @@ if test "$PHP_OPENSSL" != "no"; then
   PHP_SUBST(OPENSSL_SHARED_LIBADD)
 
   AC_CHECK_LIB(ssl, DSA_get_default_method, AC_DEFINE(HAVE_DSA_DEFAULT_METHOD, 1, [OpenSSL 0.9.7 or later]))
-
+  AC_DEFINE(HAVE_OPENSSL_EXT,1,[ ])
+  
   PHP_SETUP_OPENSSL(OPENSSL_SHARED_LIBADD, 
   [
     AC_DEFINE(HAVE_OPENSSL_INCR_EXT,1,[ ])
