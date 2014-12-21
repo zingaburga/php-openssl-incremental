@@ -45,6 +45,7 @@ enum php_openssl_cipher_type {
 };
 #endif
 
+
 typedef struct {
 	EVP_MD_CTX md_ctx;
 	int complete;
@@ -165,7 +166,7 @@ static int le_decrypt;
 static void php_digest_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 {
 	php_openssl_digest_ctx* ctx = (php_openssl_digest_ctx*)rsrc->ptr;
-	if(!ctx->complete) EVP_MD_CTX_destroy(&(ctx->md_ctx));
+	if(!ctx->complete) EVP_MD_CTX_cleanup(&(ctx->md_ctx));
 	efree(ctx);
 }
 
@@ -277,7 +278,7 @@ PHP_FUNCTION(openssl_digest_init)
 	mdtype = EVP_get_digestbyname(method);
 	if (!mdtype) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown signature algorithm");
-		RETURN_NULL;
+		RETURN_NULL();
 	}
 
 	ctx = (php_openssl_digest_ctx*) emalloc(sizeof(php_openssl_digest_ctx));
@@ -387,7 +388,7 @@ PHP_FUNCTION(openssl_encrypt_init)
 	cipher_type = EVP_get_cipherbyname(method);
 	if (!cipher_type) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
-		RETURN_NULL;
+		RETURN_NULL();
 	}
 	
 	ctx = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
@@ -506,7 +507,7 @@ PHP_FUNCTION(openssl_decrypt_init)
 	cipher_type = EVP_get_cipherbyname(method);
 	if (!cipher_type) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
-		RETURN_NULL;
+		RETURN_NULL();
 	}
 	
 	ctx = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
@@ -543,7 +544,7 @@ PHP_FUNCTION(openssl_decrypt_update)
 	zval* zv;
 	char *data;
 	int data_len;
-	int i, outlen;
+	int outlen;
 	unsigned char *outbuf;
 	php_openssl_encdec_ctx* ctx;
 
