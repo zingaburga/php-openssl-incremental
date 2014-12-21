@@ -1,4 +1,4 @@
-This PHP extension provides the ability to incrementally hash/encrypt/decrypt data using OpenSSL.  More specifically, it provides init/update/final variants of the openssl_digest, openssl_encrypt and openssl_decrypt PHP functions.
+This PHP extension provides the ability to incrementally hash/encrypt/decrypt data using OpenSSL.  More specifically, it provides init/update/final variants of the `openssl_digest`, `openssl_encrypt` and `openssl_decrypt` PHP functions.
 
 But the `hash` and `mcrypt` extensions already do this!
 ===
@@ -13,6 +13,7 @@ Some (non scientific) speed demonstrations, without using this extension.  [This
 (the "fingerprint" is only used to verify that the output of the functions are identical)
 
 Intel Xeon X5650 [AES-NI support]
+
 	sha1                          : fingerprint = b70c1887; speed = 142.583 MB/s
 	hash (sha1)                   : fingerprint = b70c1887; speed = 189.041 MB/s
 	openssl_digest (sha1)         : fingerprint = b70c1887; speed = 464.987 MB/s
@@ -28,6 +29,7 @@ Intel Xeon X5650 [AES-NI support]
 	openssl_encrypt (aes)         : fingerprint = 4bbb6b7d; speed = 546.724 MB/s
 
 Via Nano U2250 ([patched OpenSSL](https://romanrm.net/openssl-padlock)) [Via Padlock (h/w accel SHA and AES)]
+
 	sha1                          : fingerprint = b70c1887; speed = 101.699 MB/s
 	hash (sha1)                   : fingerprint = b70c1887; speed = 108.982 MB/s
 	openssl_digest (sha1)         : fingerprint = b70c1887; speed = 410.126 MB/s
@@ -43,6 +45,7 @@ Via Nano U2250 ([patched OpenSSL](https://romanrm.net/openssl-padlock)) [Via Pad
 	openssl_encrypt (aes)         : fingerprint = 4bbb6b7d; speed = 324.253 MB/s
 
 Intel Core i5 3570 (in VM without AES-NI) [no h/w acceleration]
+
 	sha1                          : fingerprint = b70c1887; speed = 474.349 MB/s
 	hash (sha1)                   : fingerprint = b70c1887; speed = 471.570 MB/s
 	openssl_digest (sha1)         : fingerprint = b70c1887; speed = 803.955 MB/s
@@ -82,7 +85,7 @@ Functions
 ===
 resource openssl_digest_init(string method)
 ---
-Initialises digest hash calculation for given method, returns a hashing context to be used with openssl_digest_update and openssl_digest_final
+Initialises digest hash calculation for given method, returns a hashing context to be used with `openssl_digest_update` and `openssl_digest_final`
 
 See also [openssl_digest](http://php.net/manual/en/function.openssl-digest.php) [hash_init](http://php.net/manual/en/function.hash-init.php)
 
@@ -101,7 +104,7 @@ See also [hash_final](http://php.net/manual/en/function.hash-final.php)
 resource openssl_encrypt_init(string method, string password [, long options=0 [, string $iv='']])
 ---
 Creates and returns a encryption context for given method and key  
-*Note: the `OPENSSL_RAW_DATA` flag is ignored as base64 encoded output is not supported*  It is recommended that scripts still set the `OPENSSL_RAW_DATA` flag in case this behaviour changes in the future
+**Note: the `OPENSSL_RAW_DATA` flag is ignored as base64 encoded output is not supported**  It is recommended that scripts still set the `OPENSSL_RAW_DATA` flag in case this behaviour changes in the future
 
 See also [openssl_encrypt](http://php.net/manual/en/function.openssl-encrypt.php)
 
