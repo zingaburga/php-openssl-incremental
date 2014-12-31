@@ -363,6 +363,7 @@ static void php_openssl_copy_iv(char *piv, int piv_len, int iv_required_len, cha
 	}
 	else if (piv_len < iv_required_len) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "IV passed is only %d bytes long, cipher expects an IV of precisely %d bytes, padding with \\0", piv_len, iv_required_len);
+		memcpy(out_iv, piv, piv_len);
 		memset(out_iv + piv_len, 0, iv_required_len - piv_len);
 	}
 	else {
@@ -394,24 +395,26 @@ PHP_FUNCTION(openssl_encrypt_init)
 	ctx = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
 
 	keylen = EVP_CIPHER_key_length(cipher_type);
-	ctx->key = emalloc(keylen);
-	memcpy(ctx->key, password, password_len);
-	if (keylen > password_len) {
+	if(keylen > password_len) {
+		ctx->key = emalloc(keylen);
 		memset(ctx->key + password_len, 0, keylen - password_len);
+	} else {
+		ctx->key = emalloc(password_len);
 	}
+	memcpy(ctx->key, password, password_len);
 
 	max_iv_len = EVP_CIPHER_iv_length(cipher_type);
 	if (iv_len <= 0 && max_iv_len > 0) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Using an empty Initialization Vector (iv) is potentially insecure and not recommended");
 	}
-	ctx->iv = emalloc(max_iv_len + 1);
+	ctx->iv = emalloc(max_iv_len);
 	php_openssl_copy_iv(iv, iv_len, max_iv_len, ctx->iv TSRMLS_CC);
 
 	EVP_EncryptInit(&(ctx->cipher_ctx), cipher_type, NULL, NULL);
 	if (password_len > keylen) {
 		EVP_CIPHER_CTX_set_key_length(&(ctx->cipher_ctx), password_len);
 	}
-	EVP_EncryptInit_ex(&(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)iv);
+	EVP_EncryptInit_ex(&(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)ctx->iv);
 	if (options & OPENSSL_ZERO_PADDING) {
 		EVP_CIPHER_CTX_set_padding(&(ctx->cipher_ctx), 0);
 	}
@@ -513,21 +516,23 @@ PHP_FUNCTION(openssl_decrypt_init)
 	ctx = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
 
 	keylen = EVP_CIPHER_key_length(cipher_type);
-	ctx->key = emalloc(keylen);
-	memcpy(ctx->key, password, password_len);
-	if (keylen > password_len) {
+	if(keylen > password_len) {
+		ctx->key = emalloc(keylen);
 		memset(ctx->key + password_len, 0, keylen - password_len);
+	} else {
+		ctx->key = emalloc(password_len);
 	}
+	memcpy(ctx->key, password, password_len);
 
 	max_iv_len = EVP_CIPHER_iv_length(cipher_type);
-	ctx->iv = emalloc(max_iv_len + 1);
+	ctx->iv = emalloc(max_iv_len);
 	php_openssl_copy_iv(iv, iv_len, max_iv_len, ctx->iv TSRMLS_CC);
 
 	EVP_DecryptInit(&(ctx->cipher_ctx), cipher_type, NULL, NULL);
 	if (password_len > keylen) {
 		EVP_CIPHER_CTX_set_key_length(&(ctx->cipher_ctx), password_len);
 	}
-	EVP_DecryptInit_ex(&(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)iv);
+	EVP_DecryptInit_ex(&(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)ctx->iv);
 	if (options & OPENSSL_ZERO_PADDING) {
 		EVP_CIPHER_CTX_set_padding(&(ctx->cipher_ctx), 0);
 	}
