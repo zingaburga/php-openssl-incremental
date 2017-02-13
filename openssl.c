@@ -46,13 +46,27 @@ enum php_openssl_cipher_type {
 #endif
 
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+# define _OPENSSL_CTX_REF(x) x
+#else
+# define _OPENSSL_CTX_REF(x) &(x)
+#endif
+
 typedef struct {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	EVP_MD_CTX* md_ctx;
+#else
 	EVP_MD_CTX md_ctx;
+#endif
 	int complete;
 	int siglen;
 } php_openssl_digest_ctx;
 typedef struct {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	EVP_CIPHER_CTX* cipher_ctx;
+#else
 	EVP_CIPHER_CTX cipher_ctx;
+#endif
 	int complete;
 	char* iv;
 	unsigned char* key;
@@ -166,7 +180,12 @@ static int le_decrypt;
 static void php_digest_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 {
 	php_openssl_digest_ctx* ctx = (php_openssl_digest_ctx*)rsrc->ptr;
+	
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	if(!ctx->complete) EVP_MD_CTX_free(ctx->md_ctx);
+#else
 	if(!ctx->complete) EVP_MD_CTX_cleanup(&(ctx->md_ctx));
+#endif
 	efree(ctx);
 }
 
@@ -177,7 +196,11 @@ static void php_encdec_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 		efree(ctx->key);
 		efree(ctx->iv);
 	}
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	if(!ctx->complete) EVP_CIPHER_CTX_free(ctx->cipher_ctx);
+#else
 	if(!ctx->complete) EVP_CIPHER_CTX_cleanup(&(ctx->cipher_ctx));
+#endif
 	efree(ctx);
 }
 
@@ -284,7 +307,10 @@ PHP_FUNCTION(openssl_digest_init)
 	ctx = (php_openssl_digest_ctx*) emalloc(sizeof(php_openssl_digest_ctx));
 	ctx->siglen = EVP_MD_size(mdtype);
 
-	EVP_DigestInit(&(ctx->md_ctx), mdtype);
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	ctx->md_ctx = EVP_MD_CTX_new();
+#endif
+	EVP_DigestInit(_OPENSSL_CTX_REF(ctx->md_ctx), mdtype);
 	ctx->complete = 0;
 	
 	ZEND_REGISTER_RESOURCE(return_value, ctx, le_digest);
@@ -307,7 +333,7 @@ PHP_FUNCTION(openssl_digest_update)
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
 		RETURN_FALSE;
 	}
-	EVP_DigestUpdate(&(ctx->md_ctx), (unsigned char *)data, data_len);
+	EVP_DigestUpdate(_OPENSSL_CTX_REF(ctx->md_ctx), (unsigned char *)data, data_len);
 	RETVAL_TRUE;
 }
 /* }}} */
@@ -320,7 +346,6 @@ PHP_FUNCTION(openssl_digest_final)
 	zval* zv;
 	php_openssl_digest_ctx* ctx;
 	
-
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r|b", &zv, &raw_output) == FAILURE) {
 		return;
 	}
@@ -333,7 +358,7 @@ PHP_FUNCTION(openssl_digest_final)
 	sigbuf = emalloc(ctx->siglen + 1);
 	ctx->complete = 1;
 	
-	if (EVP_DigestFinal (&(ctx->md_ctx), (unsigned char *)sigbuf, (unsigned int *)&(ctx->siglen))) {
+	if (EVP_DigestFinal (_OPENSSL_CTX_REF(ctx->md_ctx), (unsigned char *)sigbuf, (unsigned int *)&(ctx->siglen))) {
 		if (raw_output) {
 			sigbuf[ctx->siglen] = '\0';
 			RETVAL_STRINGL((char *)sigbuf, ctx->siglen, 0);
@@ -410,13 +435,16 @@ PHP_FUNCTION(openssl_encrypt_init)
 	ctx->iv = emalloc(max_iv_len);
 	php_openssl_copy_iv(iv, iv_len, max_iv_len, ctx->iv TSRMLS_CC);
 
-	EVP_EncryptInit(&(ctx->cipher_ctx), cipher_type, NULL, NULL);
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	ctx->cipher_ctx = EVP_CIPHER_CTX_new();
+#endif
+	EVP_EncryptInit(_OPENSSL_CTX_REF(ctx->cipher_ctx), cipher_type, NULL, NULL);
 	if (password_len > keylen) {
-		EVP_CIPHER_CTX_set_key_length(&(ctx->cipher_ctx), password_len);
+		EVP_CIPHER_CTX_set_key_length(_OPENSSL_CTX_REF(ctx->cipher_ctx), password_len);
 	}
-	EVP_EncryptInit_ex(&(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)ctx->iv);
+	EVP_EncryptInit_ex(_OPENSSL_CTX_REF(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)ctx->iv);
 	if (options & OPENSSL_ZERO_PADDING) {
-		EVP_CIPHER_CTX_set_padding(&(ctx->cipher_ctx), 0);
+		EVP_CIPHER_CTX_set_padding(_OPENSSL_CTX_REF(ctx->cipher_ctx), 0);
 	}
 	ctx->block_size = EVP_CIPHER_block_size(cipher_type);
 	ctx->complete = 0;
@@ -450,7 +478,7 @@ PHP_FUNCTION(openssl_encrypt_update)
 	outlen = data_len + ctx->block_size;
 	outbuf = emalloc(outlen + 1);
 
-	EVP_EncryptUpdate(&(ctx->cipher_ctx), outbuf, &outlen, (unsigned char *)data, data_len);
+	EVP_EncryptUpdate(_OPENSSL_CTX_REF(ctx->cipher_ctx), outbuf, &outlen, (unsigned char *)data, data_len);
 	outbuf[outlen] = '\0';
 	RETVAL_STRINGL((char *)outbuf, outlen, 0);
 }
@@ -477,7 +505,7 @@ PHP_FUNCTION(openssl_encrypt_final)
 	outbuf = emalloc(outlen + 1);
 	
 	ctx->complete = 1;
-	if (EVP_EncryptFinal(&(ctx->cipher_ctx), outbuf, &outlen)) {
+	if (EVP_EncryptFinal_ex(_OPENSSL_CTX_REF(ctx->cipher_ctx), outbuf, &outlen)) {
 		outbuf[outlen] = '\0';
 		RETVAL_STRINGL((char *)outbuf, outlen, 0);
 	} else {
@@ -488,7 +516,11 @@ PHP_FUNCTION(openssl_encrypt_final)
 	ctx->key = NULL;
 	efree(ctx->iv);
 	ctx->iv = NULL;
-	EVP_CIPHER_CTX_cleanup(&(ctx->cipher_ctx));
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	EVP_CIPHER_CTX_free(ctx->cipher_ctx);
+#else
+	EVP_CIPHER_CTX_cleanup(_OPENSSL_CTX_REF(ctx->cipher_ctx));
+#endif
 }
 /* }}} */
 
@@ -528,13 +560,16 @@ PHP_FUNCTION(openssl_decrypt_init)
 	ctx->iv = emalloc(max_iv_len);
 	php_openssl_copy_iv(iv, iv_len, max_iv_len, ctx->iv TSRMLS_CC);
 
-	EVP_DecryptInit(&(ctx->cipher_ctx), cipher_type, NULL, NULL);
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	ctx->cipher_ctx = EVP_CIPHER_CTX_new();
+#endif
+	EVP_DecryptInit(_OPENSSL_CTX_REF(ctx->cipher_ctx), cipher_type, NULL, NULL);
 	if (password_len > keylen) {
-		EVP_CIPHER_CTX_set_key_length(&(ctx->cipher_ctx), password_len);
+		EVP_CIPHER_CTX_set_key_length(_OPENSSL_CTX_REF(ctx->cipher_ctx), password_len);
 	}
-	EVP_DecryptInit_ex(&(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)ctx->iv);
+	EVP_DecryptInit_ex(_OPENSSL_CTX_REF(ctx->cipher_ctx), NULL, NULL, ctx->key, (unsigned char *)ctx->iv);
 	if (options & OPENSSL_ZERO_PADDING) {
-		EVP_CIPHER_CTX_set_padding(&(ctx->cipher_ctx), 0);
+		EVP_CIPHER_CTX_set_padding(_OPENSSL_CTX_REF(ctx->cipher_ctx), 0);
 	}
 	ctx->block_size = EVP_CIPHER_block_size(cipher_type);
 	ctx->complete = 0;
@@ -569,7 +604,7 @@ PHP_FUNCTION(openssl_decrypt_update)
 	outlen = data_len + ctx->block_size;
 	outbuf = emalloc(outlen + 1);
 
-	EVP_DecryptUpdate(&(ctx->cipher_ctx), outbuf, &outlen, (unsigned char *)data, data_len);
+	EVP_DecryptUpdate(_OPENSSL_CTX_REF(ctx->cipher_ctx), outbuf, &outlen, (unsigned char *)data, data_len);
 	outbuf[outlen] = '\0';
 	RETVAL_STRINGL((char *)outbuf, outlen, 0);
 }
@@ -596,7 +631,7 @@ PHP_FUNCTION(openssl_decrypt_final)
 	outbuf = emalloc(outlen + 1);
 
 	ctx->complete = 1;
-	if (EVP_DecryptFinal(&(ctx->cipher_ctx), (unsigned char *)outbuf, &outlen)) {
+	if (EVP_DecryptFinal_ex(_OPENSSL_CTX_REF(ctx->cipher_ctx), (unsigned char *)outbuf, &outlen)) {
 		outbuf[outlen] = '\0';
 		RETVAL_STRINGL((char *)outbuf, outlen, 0);
 	} else {
@@ -607,7 +642,12 @@ PHP_FUNCTION(openssl_decrypt_final)
 	ctx->key = NULL;
 	efree(ctx->iv);
 	ctx->iv = NULL;
- 	EVP_CIPHER_CTX_cleanup(&(ctx->cipher_ctx));
+	
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	EVP_CIPHER_CTX_free(ctx->cipher_ctx);
+#else
+	EVP_CIPHER_CTX_cleanup(_OPENSSL_CTX_REF(ctx->cipher_ctx));
+#endif
 }
 /* }}} */
 
