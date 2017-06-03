@@ -73,6 +73,22 @@ typedef struct {
 	int block_size;
 } php_openssl_encdec_ctx;
 
+#if PHP_MAJOR_VERSION > 5
+typedef size_t php_strlen_t;
+typedef zend_long php_long_t;
+typedef zend_resource php_rsrc_t;
+#define PHP_RETURN_STRINGL(s, l, c) RETVAL_STRINGL(s, l); if(!c) efree(s)
+#define PHP_RETURN_RESOURCE(r, l) RETURN_RES(zend_register_resource(r, l))
+#define PHP_ASSIGN_RESOURCE(target, type, zv, name, le) (target) = (type)zend_fetch_resource(Z_RES_P(zv), name, le)
+#else
+typedef int php_strlen_t;
+typedef long php_long_t;
+typedef zend_rsrc_list_entry php_rsrc_t;
+#define PHP_RETURN_STRINGL RETVAL_STRINGL
+#define PHP_RETURN_RESOURCE(r, l) ZEND_REGISTER_RESOURCE(return_value, r, l)
+#define PHP_ASSIGN_RESOURCE(target, type, zv, name, le) ZEND_FETCH_RESOURCE(target, type, &(zv), -1, name, le)
+#endif
+
 PHP_FUNCTION(openssl_digest_init);
 PHP_FUNCTION(openssl_digest_update);
 PHP_FUNCTION(openssl_digest_final);
@@ -177,7 +193,7 @@ static int le_encrypt;
 static int le_decrypt;
 
 /* {{{ resource destructors */
-static void php_digest_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
+static void php_digest_free(php_rsrc_t *rsrc TSRMLS_DC)
 {
 	php_openssl_digest_ctx* ctx = (php_openssl_digest_ctx*)rsrc->ptr;
 	
@@ -189,7 +205,7 @@ static void php_digest_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 	efree(ctx);
 }
 
-static void php_encdec_free(zend_rsrc_list_entry *rsrc TSRMLS_DC)
+static void php_encdec_free(php_rsrc_t *rsrc TSRMLS_DC)
 {
 	php_openssl_encdec_ctx* ctx = (php_openssl_encdec_ctx*)rsrc->ptr;
 	if(ctx->key) {
@@ -291,7 +307,7 @@ PHP_MSHUTDOWN_FUNCTION(openssl_incr)
 PHP_FUNCTION(openssl_digest_init)
 {
 	char *method;
-	int method_len;
+	php_strlen_t method_len;
 	const EVP_MD *mdtype;
 	php_openssl_digest_ctx* ctx;
 
@@ -313,7 +329,7 @@ PHP_FUNCTION(openssl_digest_init)
 	EVP_DigestInit(_OPENSSL_CTX_REF(ctx->md_ctx), mdtype);
 	ctx->complete = 0;
 	
-	ZEND_REGISTER_RESOURCE(return_value, ctx, le_digest);
+	PHP_RETURN_RESOURCE(ctx, le_digest);
 }
 /* }}} */
 /* {{{ proto bool openssl_digest_update(resource ctx, string data)
@@ -322,13 +338,14 @@ PHP_FUNCTION(openssl_digest_update)
 {
 	zval* zv;
 	char *data;
-	int data_len;
+	php_strlen_t data_len;
 	php_openssl_digest_ctx* ctx;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rs", &zv, &data, &data_len) == FAILURE) {
 		return;
 	}
-	ZEND_FETCH_RESOURCE(ctx, php_openssl_digest_ctx*, &zv, -1, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
+	PHP_ASSIGN_RESOURCE(ctx, php_openssl_digest_ctx*, zv, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
+	if (!ctx) RETURN_FALSE;
 	if (ctx->complete) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
 		RETURN_FALSE;
@@ -349,7 +366,8 @@ PHP_FUNCTION(openssl_digest_final)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r|b", &zv, &raw_output) == FAILURE) {
 		return;
 	}
-	ZEND_FETCH_RESOURCE(ctx, php_openssl_digest_ctx*, &zv, -1, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
+	PHP_ASSIGN_RESOURCE(ctx, php_openssl_digest_ctx*, zv, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
+	if (!ctx) RETURN_FALSE;
 	if (ctx->complete) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
 		RETURN_FALSE;
@@ -361,14 +379,14 @@ PHP_FUNCTION(openssl_digest_final)
 	if (EVP_DigestFinal (_OPENSSL_CTX_REF(ctx->md_ctx), (unsigned char *)sigbuf, (unsigned int *)&(ctx->siglen))) {
 		if (raw_output) {
 			sigbuf[ctx->siglen] = '\0';
-			RETVAL_STRINGL((char *)sigbuf, ctx->siglen, 0);
+			PHP_RETURN_STRINGL((char *)sigbuf, ctx->siglen, 0);
 		} else {
 			int digest_str_len = ctx->siglen * 2;
 			char *digest_str = emalloc(digest_str_len + 1);
 
 			make_digest_ex(digest_str, sigbuf, ctx->siglen);
 			efree(sigbuf);
-			RETVAL_STRINGL(digest_str, digest_str_len, 0);
+			PHP_RETURN_STRINGL(digest_str, digest_str_len, 0);
 		}
 	} else {
 		efree(sigbuf);
@@ -401,9 +419,9 @@ static void php_openssl_copy_iv(char *piv, int piv_len, int iv_required_len, cha
    Creates and returns a encryption context for given method and key */
 PHP_FUNCTION(openssl_encrypt_init)
 {
-	long options = 0;
+	php_long_t options = 0;
 	char *method, *password, *iv = "";
-	int method_len, password_len, iv_len = 0, max_iv_len;
+	php_strlen_t method_len, password_len, iv_len = 0, max_iv_len;
 	const EVP_CIPHER *cipher_type;
 	int keylen;
 	php_openssl_encdec_ctx* ctx;
@@ -449,7 +467,7 @@ PHP_FUNCTION(openssl_encrypt_init)
 	ctx->block_size = EVP_CIPHER_block_size(cipher_type);
 	ctx->complete = 0;
 	
-	ZEND_REGISTER_RESOURCE(return_value, ctx, le_encrypt);
+	PHP_RETURN_RESOURCE(ctx, le_encrypt);
 }
 /* }}} */
 /* {{{ proto string openssl_encrypt_update(resource ctx, string data)
@@ -458,21 +476,23 @@ PHP_FUNCTION(openssl_encrypt_update)
 {
 	zval* zv;
 	char *data;
-	int data_len, outlen;
+	php_strlen_t data_len;
+	int outlen;
 	unsigned char *outbuf;
 	php_openssl_encdec_ctx* ctx;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rs", &zv, &data, &data_len) == FAILURE) {
 		return;
 	}
-	ZEND_FETCH_RESOURCE(ctx, php_openssl_encdec_ctx*, &zv, -1, PHP_OPENSSL_CTX_ENCRYPT_NAME, le_encrypt);
+	PHP_ASSIGN_RESOURCE(ctx, php_openssl_encdec_ctx*, zv, PHP_OPENSSL_CTX_ENCRYPT_NAME, le_encrypt);
+	if (!ctx) RETURN_FALSE;
 	if (ctx->complete) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
 		RETURN_FALSE;
 	}
 	
 	if(data_len < 1) {
-		RETURN_STRINGL("", 0, 1);
+		PHP_RETURN_STRINGL("", 0, 1);
 	}
 
 	outlen = data_len + ctx->block_size;
@@ -480,7 +500,7 @@ PHP_FUNCTION(openssl_encrypt_update)
 
 	EVP_EncryptUpdate(_OPENSSL_CTX_REF(ctx->cipher_ctx), outbuf, &outlen, (unsigned char *)data, data_len);
 	outbuf[outlen] = '\0';
-	RETVAL_STRINGL((char *)outbuf, outlen, 0);
+	PHP_RETURN_STRINGL((char *)outbuf, outlen, 0);
 }
 /* }}} */
 /* {{{ proto string openssl_encrypt_final(resource ctx)
@@ -495,7 +515,8 @@ PHP_FUNCTION(openssl_encrypt_final)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &zv) == FAILURE) {
 		return;
 	}
-	ZEND_FETCH_RESOURCE(ctx, php_openssl_encdec_ctx*, &zv, -1, PHP_OPENSSL_CTX_ENCRYPT_NAME, le_encrypt);
+	PHP_ASSIGN_RESOURCE(ctx, php_openssl_encdec_ctx*, zv, PHP_OPENSSL_CTX_ENCRYPT_NAME, le_encrypt);
+	if (!ctx) RETURN_FALSE;
 	if (ctx->complete) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
 		RETURN_FALSE;
@@ -507,7 +528,7 @@ PHP_FUNCTION(openssl_encrypt_final)
 	ctx->complete = 1;
 	if (EVP_EncryptFinal_ex(_OPENSSL_CTX_REF(ctx->cipher_ctx), outbuf, &outlen)) {
 		outbuf[outlen] = '\0';
-		RETVAL_STRINGL((char *)outbuf, outlen, 0);
+		PHP_RETURN_STRINGL((char *)outbuf, outlen, 0);
 	} else {
 		efree(outbuf);
 		RETVAL_FALSE;
@@ -528,9 +549,9 @@ PHP_FUNCTION(openssl_encrypt_final)
    Creates and returns a decryption context for given method and key */
 PHP_FUNCTION(openssl_decrypt_init)
 {
-	long options = 0;
+	php_long_t options = 0;
 	char *method, *password, *iv = "";
-	int method_len, password_len, iv_len = 0, max_iv_len;
+	php_strlen_t method_len, password_len, iv_len = 0, max_iv_len;
 	const EVP_CIPHER *cipher_type;
 	int keylen;
 	php_openssl_encdec_ctx* ctx;
@@ -574,7 +595,7 @@ PHP_FUNCTION(openssl_decrypt_init)
 	ctx->block_size = EVP_CIPHER_block_size(cipher_type);
 	ctx->complete = 0;
 	
-	ZEND_REGISTER_RESOURCE(return_value, ctx, le_decrypt);
+	PHP_RETURN_RESOURCE(ctx, le_decrypt);
 }
 /* }}} */
 /* {{{ proto string openssl_decrypt_update(resource ctx, string data)
@@ -583,7 +604,7 @@ PHP_FUNCTION(openssl_decrypt_update)
 {
 	zval* zv;
 	char *data;
-	int data_len;
+	php_strlen_t data_len;
 	int outlen;
 	unsigned char *outbuf;
 	php_openssl_encdec_ctx* ctx;
@@ -591,14 +612,15 @@ PHP_FUNCTION(openssl_decrypt_update)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rs", &zv, &data, &data_len) == FAILURE) {
 		return;
 	}
-	ZEND_FETCH_RESOURCE(ctx, php_openssl_encdec_ctx*, &zv, -1, PHP_OPENSSL_CTX_DECRYPT_NAME, le_decrypt);
+	PHP_ASSIGN_RESOURCE(ctx, php_openssl_encdec_ctx*, zv, PHP_OPENSSL_CTX_DECRYPT_NAME, le_decrypt);
+	if (!ctx) RETURN_FALSE;
 	if (ctx->complete) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
 		RETURN_FALSE;
 	}
 	
 	if(data_len < 1) {
-		RETURN_STRINGL("", 0, 1);
+		PHP_RETURN_STRINGL("", 0, 1);
 	}
 
 	outlen = data_len + ctx->block_size;
@@ -606,7 +628,7 @@ PHP_FUNCTION(openssl_decrypt_update)
 
 	EVP_DecryptUpdate(_OPENSSL_CTX_REF(ctx->cipher_ctx), outbuf, &outlen, (unsigned char *)data, data_len);
 	outbuf[outlen] = '\0';
-	RETVAL_STRINGL((char *)outbuf, outlen, 0);
+	PHP_RETURN_STRINGL((char *)outbuf, outlen, 0);
 }
 /* }}} */
 /* {{{ proto string openssl_decrypt_final(resource ctx)
@@ -621,7 +643,8 @@ PHP_FUNCTION(openssl_decrypt_final)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &zv) == FAILURE) {
 		return;
 	}
-	ZEND_FETCH_RESOURCE(ctx, php_openssl_encdec_ctx*, &zv, -1, PHP_OPENSSL_CTX_DECRYPT_NAME, le_decrypt);
+	PHP_ASSIGN_RESOURCE(ctx, php_openssl_encdec_ctx*, zv, PHP_OPENSSL_CTX_DECRYPT_NAME, le_decrypt);
+	if (!ctx) RETURN_FALSE;
 	if (ctx->complete) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
 		RETURN_FALSE;
@@ -633,7 +656,7 @@ PHP_FUNCTION(openssl_decrypt_final)
 	ctx->complete = 1;
 	if (EVP_DecryptFinal_ex(_OPENSSL_CTX_REF(ctx->cipher_ctx), (unsigned char *)outbuf, &outlen)) {
 		outbuf[outlen] = '\0';
-		RETVAL_STRINGL((char *)outbuf, outlen, 0);
+		PHP_RETURN_STRINGL((char *)outbuf, outlen, 0);
 	} else {
 		efree(outbuf);
 		RETVAL_FALSE;
