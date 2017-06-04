@@ -78,6 +78,12 @@ test_pwdiv($password, '');
 test_pwdiv($password, substr($iv, 0, 4));
 test_pwdiv($password, $iv.$iv);
 
+// test info functions
+var_dump(openssl_cipher_block_size('aes-256-cbc'), 
+	openssl_cipher_key_length('aes-256-cbc'),
+	openssl_cipher_mode('aes-256-cbc') == OPENSSL_CIPH_CBC_MODE
+);
+var_dump(openssl_cipher_block_size(''), openssl_cipher_key_length(''), openssl_cipher_mode(''));
 ?>
 --EXPECTF--
 string(64) "54CX4A94Jz2K0JSTnvnTXkEfzCeLK6yFVEFUn7wJPD2MoXddWQQd3RmLG0+5XEmg"
@@ -134,3 +140,15 @@ bool(true)
 
 Warning: openssl_decrypt_init(): IV passed is 32 bytes long which is longer than the 16 expected by selected cipher, truncating in %s on line %d
 string(45) "openssl_encrypt() and openssl_decrypt() tests"
+int(16)
+int(32)
+bool(true)
+
+Warning: openssl_cipher_block_size(): Unknown cipher algorithm in %s on line %d
+
+Warning: openssl_cipher_key_length(): Unknown cipher algorithm in %s on line %d
+
+Warning: openssl_cipher_mode(): Unknown cipher algorithm in %s on line %d
+NULL
+NULL
+NULL

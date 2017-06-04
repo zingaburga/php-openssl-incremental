@@ -89,9 +89,15 @@ typedef zend_rsrc_list_entry php_rsrc_t;
 #define PHP_ASSIGN_RESOURCE(target, type, zv, name, le) ZEND_FETCH_RESOURCE(target, type, &(zv), -1, name, le)
 #endif
 
+PHP_FUNCTION(openssl_digest_size);
+PHP_FUNCTION(openssl_digest_block_size);
 PHP_FUNCTION(openssl_digest_init);
 PHP_FUNCTION(openssl_digest_update);
 PHP_FUNCTION(openssl_digest_final);
+PHP_FUNCTION(openssl_digest_copy);
+PHP_FUNCTION(openssl_cipher_block_size);
+PHP_FUNCTION(openssl_cipher_key_length);
+PHP_FUNCTION(openssl_cipher_mode);
 PHP_FUNCTION(openssl_encrypt_init);
 PHP_FUNCTION(openssl_encrypt_update);
 PHP_FUNCTION(openssl_encrypt_final);
@@ -101,7 +107,7 @@ PHP_FUNCTION(openssl_decrypt_final);
 
 /* {{{ arginfo */
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_digest_init, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_method_only, 0, 0, 1)
     ZEND_ARG_INFO(0, method)
 ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_digest_update, 0, 0, 2)
@@ -111,6 +117,9 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_digest_final, 0, 0, 1)
     ZEND_ARG_INFO(0, ctx)
     ZEND_ARG_INFO(0, raw_output)
+ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_digest_copy, 0, 0, 1)
+    ZEND_ARG_INFO(0, ctx)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_openssl_encrypt_init, 0, 0, 2)
@@ -148,9 +157,15 @@ ZEND_END_ARG_INFO()
  */
 const zend_function_entry openssl_functions[] = {
 
-	PHP_FE(openssl_digest_init,				arginfo_openssl_digest_init)
+	PHP_FE(openssl_digest_size,				arginfo_openssl_method_only)
+	PHP_FE(openssl_digest_block_size,			arginfo_openssl_method_only)
+	PHP_FE(openssl_digest_init,				arginfo_openssl_method_only)
 	PHP_FE(openssl_digest_update,				arginfo_openssl_digest_update)
 	PHP_FE(openssl_digest_final,				arginfo_openssl_digest_final)
+	PHP_FE(openssl_digest_copy,				arginfo_openssl_digest_copy)
+	PHP_FE(openssl_cipher_block_size,				arginfo_openssl_method_only)
+	PHP_FE(openssl_cipher_key_length,				arginfo_openssl_method_only)
+	PHP_FE(openssl_cipher_mode,				arginfo_openssl_method_only)
 	PHP_FE(openssl_encrypt_init,				arginfo_openssl_encrypt_init)
 	PHP_FE(openssl_encrypt_update,				arginfo_openssl_encrypt_update)
 	PHP_FE(openssl_encrypt_final,				arginfo_openssl_encrypt_final)
@@ -274,7 +289,28 @@ PHP_MINIT_FUNCTION(openssl_incr)
 	REGISTER_LONG_CONSTANT("OPENSSL_RAW_DATA", OPENSSL_RAW_DATA, CONST_CS|CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("OPENSSL_ZERO_PADDING", OPENSSL_ZERO_PADDING, CONST_CS|CONST_PERSISTENT);
 #endif
-
+	
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_STREAM_CIPHER", EVP_CIPH_STREAM_CIPHER, CONST_CS|CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_ECB_MODE", EVP_CIPH_ECB_MODE, CONST_CS|CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_CBC_MODE", EVP_CIPH_CBC_MODE, CONST_CS|CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_CFB_MODE", EVP_CIPH_CFB_MODE, CONST_CS|CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_OFB_MODE", EVP_CIPH_OFB_MODE, CONST_CS|CONST_PERSISTENT);
+#ifdef EVP_CIPH_CTR_MODE
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_CTR_MODE", EVP_CIPH_CTR_MODE, CONST_CS|CONST_PERSISTENT);
+#endif
+#ifdef EVP_CIPH_GCM_MODE
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_GCM_MODE", EVP_CIPH_GCM_MODE, CONST_CS|CONST_PERSISTENT);
+#endif
+#ifdef EVP_CIPH_CCM_MODE
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_CCM_MODE", EVP_CIPH_CCM_MODE, CONST_CS|CONST_PERSISTENT);
+#endif
+#ifdef EVP_CIPH_XTS_MODE
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_XTS_MODE", EVP_CIPH_XTS_MODE, CONST_CS|CONST_PERSISTENT);
+#endif
+#ifdef EVP_CIPH_WRAP_MODE
+	REGISTER_LONG_CONSTANT("OPENSSL_CIPH_WRAP_MODE", EVP_CIPH_WRAP_MODE, CONST_CS|CONST_PERSISTENT);
+#endif
+	
 	return SUCCESS;
 }
 /* }}} */
@@ -300,6 +336,47 @@ PHP_MSHUTDOWN_FUNCTION(openssl_incr)
 /* }}} */
 #endif
 
+
+/* {{{ proto int openssl_digest_size(string method)
+   Returns digest size for specified hash */
+PHP_FUNCTION(openssl_digest_size)
+{
+	char *method;
+	php_strlen_t method_len;
+	const EVP_MD *mdtype;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &method, &method_len) == FAILURE) {
+		return;
+	}
+	mdtype = EVP_get_digestbyname(method);
+	if (!mdtype) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown signature algorithm");
+		RETURN_NULL();
+	}
+
+	RETURN_LONG(EVP_MD_size(mdtype));
+}
+/* }}} */
+/* {{{ proto int openssl_digest_block_size(string method)
+   Returns digest block size for specified hash */
+PHP_FUNCTION(openssl_digest_block_size)
+{
+	char *method;
+	php_strlen_t method_len;
+	const EVP_MD *mdtype;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &method, &method_len) == FAILURE) {
+		return;
+	}
+	mdtype = EVP_get_digestbyname(method);
+	if (!mdtype) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown signature algorithm");
+		RETURN_NULL();
+	}
+
+	RETURN_LONG(EVP_MD_block_size(mdtype));
+}
+/* }}} */
 
 
 /* {{{ proto resource openssl_digest_init(string method)
@@ -394,6 +471,35 @@ PHP_FUNCTION(openssl_digest_final)
 	}
 }
 /* }}} */
+/* {{{ proto resource openssl_digest_copy(resource ctx)
+   Returns a copy of the digest resource */
+PHP_FUNCTION(openssl_digest_copy)
+{
+	zval* zv;
+	php_openssl_digest_ctx* ctx;
+	php_openssl_digest_ctx* ctx2;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &zv) == FAILURE) {
+		return;
+	}
+	PHP_ASSIGN_RESOURCE(ctx, php_openssl_digest_ctx*, zv, PHP_OPENSSL_CTX_DIGEST_NAME, le_digest);
+	if (!ctx) RETURN_FALSE;
+	if (ctx->complete) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
+		RETURN_FALSE;
+	}
+	
+	ctx2 = (php_openssl_digest_ctx*) emalloc(sizeof(php_openssl_digest_ctx));
+	ctx2->siglen = ctx->siglen;
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	ctx2->md_ctx = EVP_MD_CTX_new();
+#endif
+	EVP_MD_CTX_copy(_OPENSSL_CTX_REF(ctx2->md_ctx), _OPENSSL_CTX_REF(ctx->md_ctx));
+	ctx2->complete = 0;
+	
+	PHP_RETURN_RESOURCE(ctx2, le_digest);
+}
+/* }}} */
 
 static void php_openssl_copy_iv(char *piv, int piv_len, int iv_required_len, char *out_iv TSRMLS_DC)
 {
@@ -414,6 +520,64 @@ static void php_openssl_copy_iv(char *piv, int piv_len, int iv_required_len, cha
 		memcpy(out_iv, piv, iv_required_len);
 	}
 }
+
+/* {{{ proto long openssl_cipher_block_size(string method)
+   Returns block size for specified cipher */
+PHP_FUNCTION(openssl_cipher_block_size)
+{
+	char *method;
+	php_strlen_t method_len;
+	const EVP_CIPHER *cipher_type;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &method, &method_len) == FAILURE) {
+		return;
+	}
+	cipher_type = EVP_get_cipherbyname(method);
+	if (!cipher_type) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
+		RETURN_NULL();
+	}
+	RETURN_LONG(EVP_CIPHER_block_size(cipher_type));
+}
+/* }}} */
+/* {{{ proto long openssl_cipher_key_length(string method)
+   Returns key length for specified cipher */
+PHP_FUNCTION(openssl_cipher_key_length)
+{
+	char *method;
+	php_strlen_t method_len;
+	const EVP_CIPHER *cipher_type;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &method, &method_len) == FAILURE) {
+		return;
+	}
+	cipher_type = EVP_get_cipherbyname(method);
+	if (!cipher_type) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
+		RETURN_NULL();
+	}
+	RETURN_LONG(EVP_CIPHER_key_length(cipher_type));
+}
+/* }}} */
+/* {{{ proto long openssl_cipher_mode(string method)
+   Returns block mode for specified cipher */
+PHP_FUNCTION(openssl_cipher_mode)
+{
+	char *method;
+	php_strlen_t method_len;
+	const EVP_CIPHER *cipher_type;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &method, &method_len) == FAILURE) {
+		return;
+	}
+	cipher_type = EVP_get_cipherbyname(method);
+	if (!cipher_type) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown cipher algorithm");
+		RETURN_NULL();
+	}
+	RETURN_LONG(EVP_CIPHER_mode(cipher_type));
+}
+/* }}} */
 
 /* {{{ proto resource openssl_encrypt_init(string method, string password [, long options=0 [, string $iv='']])
    Creates and returns a encryption context for given method and key */

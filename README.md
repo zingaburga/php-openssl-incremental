@@ -64,7 +64,7 @@ Installation
 ===
 _Note that this extension assumes that the PHP openssl extension is installed and loaded_
 
-You'll need the PHP development libraries.  On Debian, you can do a `apt-get install php5-dev` to grab these.
+You'll need the PHP development libraries, as well as the OpenSSL dev files.  On Debian, you can do a `apt-get install php5-dev libssl-dev` to grab these.  And of course, you'll need something to compile with, so `apt-get install build-essential pkg-config` might be useful too.
 
 Compile as shared library on Linux
 ---
@@ -101,6 +101,32 @@ Returns digest hash value for given hashing context, as raw or binhex encoded st
 
 See also [hash_final](http://php.net/manual/en/function.hash-final.php)
 
+int openssl_digest_size(string method)
+---
+Returns the digest size, in bytes, of the specified method.
+
+Example: `openssl_digest_size('sha1') == 20`
+
+int openssl_digest_block_size(string method)
+---
+Returns the block size, in bytes, of the specified method.
+
+Example: `openssl_digest_size('md5') == 64`
+
+resource openssl_digest_copy(resource ctx)
+---
+Returns a copy of the digest hash context.
+
+Example:
+
+	$a = openssl_digest_init('md5');
+	openssl_digest_update($a, 'the fox ');
+	$b = openssl_digest_copy($a);
+	openssl_digest_update($a, 'jumped');
+	openssl_digest_update($b, 'escaped');
+	echo openssl_digest_final($a); // == md5('the fox jumped')
+	echo openssl_digest_final($b); // == md5('the fox escaped')
+
 resource openssl_encrypt_init(string method, string password [, long options=0 [, string $iv='']])
 ---
 Creates and returns a encryption context for given method and key  
@@ -132,6 +158,37 @@ Decrypts and returns given raw data using given decryption context
 string openssl_decrypt_final(resource ctx)
 ---
 Returns any remaining data from decrypting context, and cleans everything up
+
+int openssl_cipher_block_size(string method)
+---
+Returns the block size, in bytes, of the specified method.
+
+Example: `openssl_cipher_block_size('aes-256-cbc') == 16`
+
+int openssl_cipher_key_length(string method)
+---
+Returns the key length, in bytes, of the specified method.
+
+Example: `openssl_cipher_key_length('aes-256-cbc') == 32`
+
+See also [openssl_cipher_iv_length](http://php.net/manual/en/function.openssl-cipher-iv-length.php) (which this method somewhat complements)
+
+int openssl_cipher_mode(string method)
+---
+Returns the block mode of the specified method.  The return value will equal one (or more, if OR'd together) of the following OPENSSL_CIPH_* constants:
+
+* OPENSSL_CIPH_STREAM_CIPHER
+* OPENSSL_CIPH_ECB_MODE
+* OPENSSL_CIPH_CBC_MODE
+* OPENSSL_CIPH_CFB_MODE
+* OPENSSL_CIPH_OFB_MODE
+* OPENSSL_CIPH_CTR_MODE
+* OPENSSL_CIPH_GCM_MODE
+* OPENSSL_CIPH_CCM_MODE
+* OPENSSL_CIPH_XTS_MODE
+* OPENSSL_CIPH_WRAP_MODE
+
+Example: `openssl_cipher_mode('aes-256-cbc') == OPENSSL_CIPH_CBC_MODE`
 
 Example
 ===
