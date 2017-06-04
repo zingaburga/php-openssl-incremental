@@ -190,6 +190,14 @@ Returns the block mode of the specified method.  The return value will equal one
 
 Example: `openssl_cipher_mode('aes-256-cbc') == OPENSSL_CIPH_CBC_MODE`
 
+resource openssl_encrypt_copy(resource ctx)
+---
+Returns a copy of the resource.
+
+resource openssl_decrypt_copy(resource ctx)
+---
+Returns a copy of the resource.
+
 Example
 ===
 	<?php

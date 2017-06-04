@@ -104,6 +104,8 @@ PHP_FUNCTION(openssl_encrypt_final);
 PHP_FUNCTION(openssl_decrypt_init);
 PHP_FUNCTION(openssl_decrypt_update);
 PHP_FUNCTION(openssl_decrypt_final);
+PHP_FUNCTION(openssl_encrypt_copy);
+PHP_FUNCTION(openssl_decrypt_copy);
 
 /* {{{ arginfo */
 
@@ -150,6 +152,8 @@ const zend_function_entry openssl_functions[] = {
 	PHP_FE(openssl_decrypt_init,				arginfo_openssl_crypt_init)
 	PHP_FE(openssl_decrypt_update,				arginfo_openssl_update)
 	PHP_FE(openssl_decrypt_final,				arginfo_openssl_ctx_only)
+	PHP_FE(openssl_encrypt_copy,				arginfo_openssl_ctx_only)
+	PHP_FE(openssl_decrypt_copy,				arginfo_openssl_ctx_only)
 	PHP_FE_END
 };
 /* }}} */
@@ -675,10 +679,14 @@ PHP_FUNCTION(openssl_encrypt_final)
 		efree(outbuf);
 		RETVAL_FALSE;
 	}
-	efree(ctx->key);
-	ctx->key = NULL;
-	efree(ctx->iv);
-	ctx->iv = NULL;
+	if(ctx->key) {
+		efree(ctx->key);
+		ctx->key = NULL;
+	}
+	if(ctx->iv) {
+		efree(ctx->iv);
+		ctx->iv = NULL;
+	}
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
 	EVP_CIPHER_CTX_free(ctx->cipher_ctx);
 #else
@@ -803,16 +811,83 @@ PHP_FUNCTION(openssl_decrypt_final)
 		efree(outbuf);
 		RETVAL_FALSE;
 	}
-	efree(ctx->key);
-	ctx->key = NULL;
-	efree(ctx->iv);
-	ctx->iv = NULL;
+	if(ctx->key) {
+		efree(ctx->key);
+		ctx->key = NULL;
+	}
+	if(ctx->iv) {
+		efree(ctx->iv);
+		ctx->iv = NULL;
+	}
 	
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
 	EVP_CIPHER_CTX_free(ctx->cipher_ctx);
 #else
 	EVP_CIPHER_CTX_cleanup(_OPENSSL_CTX_REF(ctx->cipher_ctx));
 #endif
+}
+/* }}} */
+
+/* {{{ proto resource openssl_encrypt_copy(resource ctx)
+   Returns a copy of encrypt context */
+PHP_FUNCTION(openssl_encrypt_copy)
+{
+	zval* zv;
+	php_openssl_encdec_ctx* ctx, * ctx2;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &zv) == FAILURE) {
+		return;
+	}
+	PHP_ASSIGN_RESOURCE(ctx, php_openssl_encdec_ctx*, zv, PHP_OPENSSL_CTX_ENCRYPT_NAME, le_encrypt);
+	if (!ctx) RETURN_FALSE;
+	if (ctx->complete) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
+		RETURN_FALSE;
+	}
+	
+	ctx2 = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	ctx2->cipher_ctx = EVP_CIPHER_CTX_new();
+#endif
+	
+	EVP_CIPHER_CTX_copy(_OPENSSL_CTX_REF(ctx2->cipher_ctx), _OPENSSL_CTX_REF(ctx->cipher_ctx));
+	ctx2->block_size = ctx->block_size;
+	ctx2->complete = 0;
+	ctx2->key = NULL; /* TODO: is this a good idea? */
+	ctx2->iv = NULL;
+	
+	PHP_RETURN_RESOURCE(ctx2, le_encrypt);
+}
+/* }}} */
+/* {{{ proto resource openssl_decrypt_copy(resource ctx)
+   Returns a copy of decrypt context */
+PHP_FUNCTION(openssl_decrypt_copy)
+{
+	zval* zv;
+	php_openssl_encdec_ctx* ctx, * ctx2;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &zv) == FAILURE) {
+		return;
+	}
+	PHP_ASSIGN_RESOURCE(ctx, php_openssl_encdec_ctx*, zv, PHP_OPENSSL_CTX_DECRYPT_NAME, le_decrypt);
+	if (!ctx) RETURN_FALSE;
+	if (ctx->complete) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Resource closed");
+		RETURN_FALSE;
+	}
+	
+	ctx2 = (php_openssl_encdec_ctx*)emalloc(sizeof(php_openssl_encdec_ctx));
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	ctx2->cipher_ctx = EVP_CIPHER_CTX_new();
+#endif
+	
+	EVP_CIPHER_CTX_copy(_OPENSSL_CTX_REF(ctx2->cipher_ctx), _OPENSSL_CTX_REF(ctx->cipher_ctx));
+	ctx2->block_size = ctx->block_size;
+	ctx2->complete = 0;
+	ctx2->key = NULL; /* TODO: is this a good idea? */
+	ctx2->iv = NULL;
+	
+	PHP_RETURN_RESOURCE(ctx2, le_decrypt);
 }
 /* }}} */
 
