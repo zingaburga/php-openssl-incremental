@@ -64,7 +64,9 @@ Installation
 ===
 _Note that this extension assumes that the PHP openssl extension is installed and loaded_
 
-You'll need the PHP development libraries, as well as the OpenSSL dev files.  On Debian, you can do a `apt-get install php5-dev libssl-dev` to grab these.  And of course, you'll need something to compile with, so `apt-get install build-essential pkg-config` might be useful too.
+This library should work on both PHP 5.x and PHP 7.x.
+
+You'll need the PHP development libraries, as well as the OpenSSL dev files.  On Debian, you can do a `apt-get install php5-dev libssl-dev` to grab these (replace `php5` with `php7.0` or whatever is applicable).  And of course, you'll need something to compile with, so `apt-get install build-essential pkg-config` might be useful too.
 
 Compile as shared library on Linux
 ---
@@ -75,7 +77,7 @@ Use the following commands in the directory where the files are:
 	make
 	make install
 
-Now load the module in your php.ini, or use [dl](http://php.net/manual/en/function.dl.php)
+Now load the module in your php.ini (add `extension=openssl_incr.so`), or use [dl](http://php.net/manual/en/function.dl.php)
 
 Other platforms
 ---
